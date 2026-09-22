@@ -47,9 +47,34 @@
 
 协作用的 GitHub Token 仅限本仓库，权限只有 Contents + Pull Requests，具体限制见 `Agents.md`。
 
+## 本地开发（Phase 1 起可用）
+
+```bash
+# 后端
+cd backend
+cp .env.example .env
+npm install
+npm run dev        # http://localhost:3000
+
+# 前端（另开一个终端）
+cd frontend
+cp .env.example .env
+npm install
+npm run dev         # http://localhost:5173
+```
+
+后端提供 `/api/auth/register`、`/api/auth/login`、`/api/auth/logout`、`/api/auth/me` 四个账号相关接口，前端大厅页（`/`）已接入登录/注册弹窗。
+
 ## 当前进度
 
-**尚未开始写代码。** 目前完成的是需求澄清 + 四份基础文档 + Phase 划分方案。下一个对话应该从 **Phase 1（`phase-1-skeleton-auth`：项目骨架 + 账号系统）** 开始，开工前先读一遍 `FULLREADME.md` 第9节确认范围。
+**Phase 1（`phase-1-skeleton-auth`）已完成，PR 待用户确认合并。**
+
+- 后端骨架：Express + Socket.io（骨架，仅连接日志，无房间协议）+ SQLite（`better-sqlite3`）。
+- 账号系统：`users` 表 + 密码 bcrypt 加密 + JWT（httpOnly cookie）鉴权，四个 REST 接口均已跑通（含用户名重复、密码错误等异常分支的手工测试）。
+- 前端骨架：Vite + Vue3 + vue-router + axios，大厅页（用户名/登出、登录注册弹窗、创建/加入房间占位入口）。
+- `game_records` / `drawings` 表已按 `FULLREADME.md` 第6节草案建表，但本 Phase 未写任何读写代码，留给后续 Phase。
+- 创建/加入房间按钮目前只是 UI 占位（点击提示"Phase 2 实现"），不含任何房间逻辑。
+- 下一步：**Phase 2（`phase-2-rooms`：房间系统）**，开工前先读一遍 `FULLREADME.md` 第9节确认范围。
 
 ## 交接须知
 
