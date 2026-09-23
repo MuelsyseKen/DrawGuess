@@ -3,11 +3,20 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
 
 const authRoutes = require('./routes/auth');
 
 function createApp() {
   const app = express();
+
+  // 部署在反向代理（Nginx/Caddy 等）后面时需要这个，
+  // 否则 express-rate-limit 的 IP 识别、cookie 的 secure 判断都会失真。
+  if (process.env.TRUST_PROXY === 'true') {
+    app.set('trust proxy', 1);
+  }
+
+  app.use(helmet());
 
   const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
     .split(',')

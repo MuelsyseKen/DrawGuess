@@ -75,7 +75,7 @@ async function handleSubmit() {
       <form class="modal-form" @submit.prevent="handleSubmit">
         <label class="field">
           <span>用户名</span>
-          <input v-model.trim="username" type="text" autocomplete="username" placeholder="3~20 位字母/数字/下划线/中文" />
+          <input v-model.trim="username" type="text" autocomplete="username" placeholder="3~20 位字母/数字/下划线/中文" minlength="3" maxlength="20" />
         </label>
 
         <label class="field">
@@ -85,12 +85,14 @@ async function handleSubmit() {
             type="password"
             :autocomplete="isRegister ? 'new-password' : 'current-password'"
             placeholder="至少 6 位"
+            minlength="6"
+            maxlength="72"
           />
         </label>
 
         <label v-if="isRegister" class="field">
           <span>确认密码</span>
-          <input v-model="confirmPassword" type="password" autocomplete="new-password" />
+          <input v-model="confirmPassword" type="password" autocomplete="new-password" minlength="6" maxlength="72" />
         </label>
 
         <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>

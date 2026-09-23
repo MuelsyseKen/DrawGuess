@@ -189,3 +189,32 @@
 5. 合并后，下一个 Phase 从更新后的 `main` 重新拉分支。
 
 如果某个 Phase 因为范围太大跨了多次对话，沿用同一条分支继续提交即可，不用为"每次对话"再开新分支。
+
+---
+
+## 10. 安全问题跟踪
+
+记录方式见 `Agents.md`"安全审查规范"一节。**只有确认修复并验证过才打勾**；明确不修的问题标注"已知取舍"并说明理由，不能被静默略过。
+
+### Phase 1 审查（2026-09-23，Deepseek + Gemini 两份第三方审查 + 人工验证修复）
+
+| # | 问题 | 发现方式 | 状态 | 备注 |
+|---|---|---|---|---|
+| 1 | `JWT_SECRET` 生产环境沿用不安全默认值，可伪造任意用户身份 | Deepseek + Gemini | [x] 已解决 | `utils/token.js`：`NODE_ENV=production` 且密钥仍是默认值时直接 `throw` 拒绝启动；非生产环境打印警告。已用 `NODE_ENV=production` 手工验证会启动失败。 |
+| 2 | JWT 签发/校验未显式锁定算法，理论上存在算法混淆攻击面 | Deepseek | [x] 已解决 | `signToken`/`verifyToken` 显式指定 `algorithm: 'HS256'` / `algorithms: ['HS256']`。 |
+| 3 | `register`/`login` 响应体里多下发了一份 `token` 字段，前端用的是纯 cookie 模型，这份 token 完全冗余，等于把 httpOnly 的防护白设了一半 | Deepseek（Gemini 交叉验证"前端未使用 token"） | [x] 已解决 | 响应体只保留 `user`，已确认前端 `api/auth.js`/`stores/auth.js` 本来就没读过 `token` 字段，零前端改动。 |
+| 4 | `res.cookie` 设置时的属性（`sameSite`/`secure`/`path`）和 `res.clearCookie` 不一致，浏览器可能拒绝清除 cookie，导致"登出"登不掉 | Deepseek + Gemini（结论一致） | [x] 已解决 | 抽出 `AUTH_COOKIE_OPTIONS` 常量，`setAuthCookie`/`clearAuthCookie` 共用；`sameSite` 可通过 `COOKIE_SAME_SITE` 环境变量配置。已手工验证登出后 `Set-Cookie` 正确带上 `Expires=Thu, 01 Jan 1970...`，且 `me` 接口随后返回 401。 |
+| 5 | Cookie 有效期 `COOKIE_MAX_AGE_MS` 硬编码 7 天，和 `JWT_EXPIRES_IN` 两处手写数字，改一处容易漏改另一处 | Deepseek | [x] 已解决 | 改用 `ms(JWT_EXPIRES_IN)` 派生，单一数据源。 |
+| 6 | Socket.io 握手阶段无鉴权，任何人都能建立连接且拿不到身份信息——Phase 1 看起来无害（还没有房间协议），但会变成埋在 Phase 2 里的雷 | Deepseek + Gemini（结论一致） | [x] 已解决 | `socket/index.js` 新增 `io.use(socketAuthMiddleware)`，从握手 Cookie 头解析并校验 token，挂载 `socket.user`（未登录为 `null`，不拒绝连接，是否强制登录交给具体事件处理器判断）。 |
+| 7 | 鉴权中间件保留了 `Authorization: Bearer` 兜底，但前端从不使用，白白多开一条攻击面（一旦有 XSS，攻击者可以把偷到的 token 当 Bearer 用） | Deepseek | [x] 已解决 | `middleware/auth.js` 移除 Bearer 分支，只认 httpOnly cookie。已手工验证：带 `Authorization: Bearer <token>` 但不带 cookie 访问 `/me` 返回 401。 |
+| 8 | 登录/注册接口无限流，存在暴力破解用户名密码的风险 | Deepseek（"强烈建议"项，人工评估后决定直接一起修） | [x] 已解决 | 引入 `express-rate-limit`，`/register` `/login` 共用同一 IP 15 分钟 20 次的限制。已手工验证第 20 次之后返回 429。 |
+| 9 | 密码哈希用同步 API（`bcrypt.hashSync`/`compareSync`）会阻塞 event loop；`SALT_ROUNDS` 偏低（10） | Deepseek | [x] 已解决 | 改用 `bcryptjs` 的异步 `hash`/`compare`，`SALT_ROUNDS` 提到 12。已跑通注册/登录全流程确认无回归。 |
+| 10 | `created_at`/`played_at` 用 SQLite `datetime('now')`，格式非标准 ISO 8601，不同前端环境解析容易出现时区/格式不一致 | Deepseek | [x] 已解决 | 改成 `strftime('%Y-%m-%dT%H:%M:%fZ','now')`，输出形如 `2026-09-23T03:03:23.929Z`。开发库已删除重建（Phase 1 无正式数据）。 |
+| 11 | 缺少基础安全响应头（CSP/HSTS/X-Content-Type-Options 等） | Deepseek（"强烈建议"项） | [x] 已解决 | `app.js` 引入 `helmet()`，已用 curl 确认响应头出现。 |
+| 12 | 前端密码/用户名输入框没有和后端规则对齐的前置长度校验，用户提交后才会看到报错 | Deepseek | [x] 已解决 | `AuthModal.vue` 用户名/密码/确认密码输入框加上 `minlength`/`maxlength`，与后端正则、长度常量对齐。 |
+| 13 | 无 Redis / token 黑名单：登出只清本地 cookie，旧 token 在过期前仍然有效；改密码也不会让已签发的 token 失效 | Deepseek | [ ] 已知取舍，暂不解决 | Phase 1 阶段引入 Redis 属于"重型依赖"，`Agents.md` 明确不允许未经确认就引入。等后续有实际改密码/强制下线需求时再评估（可选方案：短 token 有效期 + 刷新机制，或维护一张小型黑名单表）。 |
+| 14 | 无自动化测试框架，账号系统只靠人工 curl 验证 | Deepseek | [ ] 已知取舍，暂不解决 | Phase 1 范围判断没必要引入 Jest/Vitest，人工验证已覆盖主要路径和异常分支。如果后续 Phase 复杂度上升可以重新评估。 |
+| 15 | 前端目前无路由守卫 | Deepseek | [ ] 已知取舍，暂不解决 | Phase 1 只有大厅一个页面，暂无需要保护的路由；Phase 2 引入房间页面时再补。 |
+| 16 | `COOKIE_SAME_SITE=none`（跨站部署场景）未做实际联调测试，仅提供了配置项 | 人工自查 | [ ] 未验证 | 当前本地开发是同源部署（前端 5173 代理到后端 3000 走 `withCredentials`），没有真实跨站环境可测；如果以后前后端部署到不同顶级域名，上线前必须单独验证一遍这个配置组合（`COOKIE_SAME_SITE=none` + `COOKIE_SECURE=true`，且必须是 HTTPS）。 |
+
+---

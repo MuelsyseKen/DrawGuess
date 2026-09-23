@@ -4,13 +4,11 @@ const { verifyToken } = require('../utils/token');
 
 const COOKIE_NAME = 'drawguess_token';
 
+// 纯 cookie 模型：前端从不读写 token，只依赖 httpOnly cookie。
+// 不再接受 Authorization: Bearer —— 留着这条路等于给 XSS 多开一个即拿即用的攻击面。
 function extractToken(req) {
   if (req.cookies && req.cookies[COOKIE_NAME]) {
     return req.cookies[COOKIE_NAME];
-  }
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    return authHeader.slice('Bearer '.length);
   }
   return null;
 }
