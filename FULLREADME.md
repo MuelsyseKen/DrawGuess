@@ -162,7 +162,7 @@
 
 - 竞猜模式下，非作画者看到的"字数提示"具体展示形式未定。
 - 隐形/重力/像素艺术等特殊效果的具体实现，一期不做，仅占位。
-- 断线重连策略未定（当前默认：断线即视为掉线，不做重连恢复）。
+- 断线重连策略：**房间等待阶段（Phase 2）已定** —— 60 秒宽限期内重连自动归位，超时正式移出房间，见第11.1节。**对局进行中（Phase 4/5 的竞猜/接龙玩法）怎么处理断线仍未定**（比如画到一半掉线算不算这轮作废、回合内重连要不要恢复画板状态），留到对应 Phase 开工前再确认。
 
 ---
 
@@ -216,5 +216,111 @@
 | 14 | 无自动化测试框架，账号系统只靠人工 curl 验证 | Deepseek | [ ] 已知取舍，暂不解决 | Phase 1 范围判断没必要引入 Jest/Vitest，人工验证已覆盖主要路径和异常分支。如果后续 Phase 复杂度上升可以重新评估。 |
 | 15 | 前端目前无路由守卫 | Deepseek | [ ] 已知取舍，暂不解决 | Phase 1 只有大厅一个页面，暂无需要保护的路由；Phase 2 引入房间页面时再补。 |
 | 16 | `COOKIE_SAME_SITE=none`（跨站部署场景）未做实际联调测试，仅提供了配置项 | 人工自查 | [ ] 未验证 | 当前本地开发是同源部署（前端 5173 代理到后端 3000 走 `withCredentials`），没有真实跨站环境可测；如果以后前后端部署到不同顶级域名，上线前必须单独验证一遍这个配置组合（`COOKIE_SAME_SITE=none` + `COOKIE_SECURE=true`，且必须是 HTTPS）。 |
+
+### Phase 2 审查（2026-09-23，人工自查，房间系统涉及邀请码这类"靠不可猜测性做访问控制"的机制，按规范加做一轮）
+
+| # | 问题 | 发现方式 | 状态 | 备注 |
+|---|---|---|---|---|
+| 17 | `room:joinByCode` 没有限流，邀请码只有 6 位（33^6 ≈ 12.9 亿种组合但字符集小、总量并不算大），脚本可以在短时间内发起海量尝试撞库存活跃房间 | 人工自查 | [x] 已解决 | 新增 `backend/src/utils/rateLimit.js`（手写内存滑动窗口，不为这一个 socket 事件引入新依赖），同一登录用户每分钟最多尝试 20 次，超过返回 `TOO_MANY_ATTEMPTS`。已用测试脚本手工验证正常加入/错误邀请码流程不受影响（未触发限流阈值）；限流触发本身的分支逻辑简单，走查代码确认无误，未单独写脚本刷够 21 次去触发（意义不大）。 |
+| 18 | 房间/对局状态纯内存 + 无持久化是既定设计，但也意味着**没有任何全局配额**：同一个登录用户可以无限制地连续 `room:create`，每次都会占一块内存直到房间清空，理论上可以刷内存做 DoS | 人工自查 | [ ] 已知取舍，暂不解决 | Phase 2 范围判断没必要现在加限流/配额，房间数据结构很小（一个房间对象 + 玩家列表），本地部署/小规模场景下影响有限；如果以后要开放公网给不特定人群用，需要在这里补一个"同用户同时持有房间数"或"总房间数"上限。 |
+| 19 | Socket.io 事件 payload 没有做显式大小限制，理论上可以传超大 `settings` 对象等奇怪内容进来（虽然 `validateSettings` 会因为字段类型不对而拒绝，不会真正落库，但校验本身要花时间解析这个大对象） | 人工自查 | [ ] 已知取舍，暂不解决 | Socket.io 自带的 `maxHttpBufferSize`（默认 1MB）已经是一层兜底；Phase 2 没有看到需要单独收紧的理由，先记录，等真的观察到滥用再调整。 |
+
+---
+
+## 11. 房间系统协议（Phase 2）
+
+本节先落协议再写代码（`Agents.md` 第2条）。房间/玩家状态一律纯内存（`rooms` Map，见第6.2节），不做持久化；只有已登录用户（`socket.user` 非空）能创建/加入房间。
+
+### 11.1 房间数据结构（内存）
+
+```js
+{
+  id: 'uuid',                 // 房间内部 id，公开列表/URL 用这个
+  inviteCode: 'A1B2C3',       // 6 位大写字母+数字邀请码，仅私人房间加入时使用，不在公开列表接口里返回
+  mode: 'guess' | 'chain',
+  isPublic: false,
+  status: 'waiting',          // Phase 2 只有 waiting 一种状态，对局状态从 Phase 4/5 开始出现
+  hostUserId: 1,
+  players: [
+    { userId: 1, username: 'foo', socketId: 'xxx', isHost: true, connected: true, joinedAt: 1700000000000 }
+  ],
+  settings: { ... },          // 见 11.2，按 mode 区分字段
+  createdAt: 1700000000000
+}
+```
+
+- `players` 顺序即加入顺序；房主 (`isHost`) 离开、或断线超过宽限期后被正式移出时，顺延给下一位玩家（`players` 数组里的下一位）；房主仅仅是短暂断线（宽限期内）不会立刻交出房主身份。
+- 同一个 `userId` 同时只能在一个房间里；创建/加入新房间前，服务器会自动把该用户从旧房间移除（相当于隐式 leave）。
+- **断线重连（60 秒宽限期）**：socket `disconnect` 时不会立刻把玩家移出房间，而是把该玩家标记为 `connected:false` 并广播 `room:playerDisconnected`，同时启动 60 秒倒计时（`DISCONNECT_GRACE_MS`，房间人数上限计算时仍占着这个位置，不会被顶掉）。
+  - 60 秒内如果同一个 `userId`（已登录用户，鉴权靠 httpOnly cookie）重新建立 socket 连接，服务器会自动把新连接重新 `join` 进原房间 channel，标记 `connected:true`，广播 `room:playerReconnected`，**不需要客户端重新走加入流程**。
+  - 超过 60 秒仍未重连，服务器正式把玩家移出房间（房主顺延/房间清空逻辑同主动 `room:leave`），广播 `room:playerLeft`（`reason:'timeout'`）；此后必须重新用邀请码/公开列表加入。
+  - 主动调用 `room:leave` 是"立即离开"，不走宽限期，和断线重连是两条不同路径。
+- `room:getCurrent` 用于客户端兜底同步当前房间状态（比如 SPA 内部路由跳转到房间大厅页时用它拉一次最新状态）。
+
+### 11.2 房间设置字段（对应 FULLREADME 第4节）
+
+**通用字段**（两种模式都有）：
+
+| 字段 | 类型 | 范围 |
+|---|---|---|
+| `maxPlayers` | number | 竞猜 2~32，接龙 4~32 |
+| `specialEffect` | `'none'\|'invisible'\|'gravity'\|'pixelArt'` | 一期只允许 `'none'`，其余三个服务器直接拒绝（对应前端"选项禁用，仅占位"） |
+| `pixelGranularity` | number，仅 `specialEffect==='pixelArt'` 时有意义 | 一期恒为 `null`，字段先留着 |
+| `brushMode` | `'fixed'\|'adjustable'` | — |
+| `colorMode` | `'rgb'\|'mono'` | — |
+| `drawSeconds` | number | 30 / 60 / 90 / 自定义 10~900 |
+| `rounds` | number | 1~5 / 自定义 1~10 |
+| `wordSource` | `'custom'\|'system'` | — |
+| `wordCategory` | string，仅 `wordSource==='system'` 时必填 | 必须匹配 `wordbanks/` 目录下某个分类（见第7节，Phase 2 提供 `GET /api/wordbanks` 供前端下拉） |
+
+**竞猜模式（`mode: 'guess'`）独有**：无（用完通用字段即可）。
+
+**接龙模式（`mode: 'chain'`）独有**：
+
+| 字段 | 类型 | 范围 |
+|---|---|---|
+| `guessSeconds` | number | 30 / 60 / 自定义 10~300 |
+| `chainRounds` | number | 1~7，默认 3 |
+| `anonymousVoting` | boolean | 开启后只隐藏投票人身份，结果依然公开（Phase 5 才会用到具体逻辑，Phase 2 只存设置） |
+| `showDrawingProcess` | boolean | 对应"加框画作展示环节" |
+
+服务器对以上范围做硬校验，超出范围直接拒绝（`INVALID_SETTINGS`），不做静默 clamp。
+
+### 11.3 REST 接口
+
+- `GET /api/wordbanks` → `{ categories: [{ id, name, wordCount }] }`，读取 `backend/wordbanks/*.txt`，`id`/`name` 都用文件名（不含扩展名）。
+- `GET /api/rooms/public?mode=guess|chain`（`mode` 可选）→ `{ rooms: [{ id, mode, hostUsername, playerCount, maxPlayers, createdAt }] }`，只列 `isPublic:true && status:'waiting'` 的房间，**不返回 `inviteCode`**。
+
+### 11.4 Socket.io 房间事件
+
+事件名统一 `room:` 前缀，客户端 → 服务端的事件都带 ack 回调，返回 `{ ok: true, ...data }` 或 `{ ok: false, error, message }`（`error` 取值如 `NOT_AUTHENTICATED` / `INVALID_SETTINGS` / `ROOM_NOT_FOUND` / `ROOM_FULL` / `INVALID_INVITE_CODE` / `NOT_HOST` / `TOO_MANY_ATTEMPTS`）。
+
+`room:joinByCode` 有限流：同一登录用户每分钟最多尝试 20 次，超过返回 `TOO_MANY_ATTEMPTS`（见第10节 Phase 2 安全审查 #1，防止暴力猜邀请码）。
+
+**客户端 → 服务端**
+
+| 事件 | payload | 说明 |
+|---|---|---|
+| `room:create` | `{ mode, isPublic, settings }` | 成功返回 `{ ok:true, room }`，发起者自动成为房主并加入 |
+| `room:joinByCode` | `{ inviteCode }` | 私人/公开房间都可以用邀请码加入 |
+| `room:joinPublic` | `{ roomId }` | 从公开列表加入，房间必须 `isPublic:true` |
+| `room:leave` | 无 | 退出当前房间；房主退出触发房主顺延，房间空了直接销毁 |
+| `room:updateSettings` | `{ settings }` | 仅房主可调用，全量替换 `settings`（沿用当前 `mode`），校验规则同创建 |
+| `room:setPublic` | `{ isPublic }` | 仅房主可调用，切换公开/私人 |
+| `room:getCurrent` | 无 | 查询当前用户所在房间的完整状态，用于刷新页面后自愈；不在任何房间时返回 `{ ok:true, room:null }` |
+
+**服务端 → 客户端**（广播到 `room:<roomId>` channel）
+
+| 事件 | payload | 触发时机 |
+|---|---|---|
+| `room:playerJoined` | `{ player }` | 有新玩家加入 |
+| `room:playerDisconnected` | `{ userId, reconnectTimeoutMs }` | 玩家断线，进入 60 秒重连宽限期（仍占着房间位置） |
+| `room:playerReconnected` | `{ userId }` | 宽限期内重新连接成功 |
+| `room:playerLeft` | `{ userId, newHostUserId, reason? }` | 玩家主动离开，或宽限期超时被正式移出；`newHostUserId` 仅房主变更时非空，`reason:'timeout'` 标记是超时移出而非主动离开 |
+| `room:settingsUpdated` | `{ settings }` | 房主修改设置 |
+| `room:visibilityUpdated` | `{ isPublic }` | 房主切换公开/私人 |
+| `room:closed` | `{ reason: 'empty' }` | 最后一名玩家离开/超时移出，房间销毁 |
+
+前端对应页面（第3节）：创建房间-模式选择页 → 创建房间-参数设置页（调用 `room:create`）→ 房间大厅页（订阅上述广播事件，房主可再次打开设置面板调用 `room:updateSettings`/`room:setPublic`）；加入房间-私人（`room:joinByCode`）/ 加入房间-公开（先 `GET /api/rooms/public` 拉列表，选中后 `room:joinPublic`）。
 
 ---
