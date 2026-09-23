@@ -67,16 +67,16 @@ npm run dev         # http://localhost:5173
 
 ## 当前进度
 
-**Phase 1（`phase-1-skeleton-auth`）开发 + 安全审查修复均已完成，PR #1 待用户确认合并。**
+**Phase 2（`phase-2-rooms`）开发已完成，PR 待提交/待用户确认合并。**
 
-- 后端骨架：Express + Socket.io（骨架，含握手鉴权，无房间协议）+ SQLite（`better-sqlite3`）。
-- 账号系统：`users` 表 + 密码 bcrypt(async, 12 rounds) 加密 + JWT（httpOnly cookie，锁定 HS256）鉴权，四个 REST 接口均已跑通（含用户名重复、密码错误等异常分支，以及登录限流的手工测试）。
-- 安全加固：`JWT_SECRET` 生产环境弱默认值会拒绝启动、cookie set/clear 属性统一、Socket.io 握手鉴权、去掉冗余的 Bearer 兜底、登录注册限流、`helmet()` 基础安全响应头。完整清单和验证记录见 `FULLREADME.md` 第10节"安全问题跟踪"。
-- 前端骨架：Vite + Vue3 + vue-router + axios，大厅页（用户名/登出、登录注册弹窗、创建/加入房间占位入口）。
-- `game_records` / `drawings` 表已按 `FULLREADME.md` 第6节草案建表，但本 Phase 未写任何读写代码，留给后续 Phase。
-- 创建/加入房间按钮目前只是 UI 占位（点击提示"Phase 2 实现"），不含任何房间逻辑。
-- 已知取舍（不是遗漏，详见 `FULLREADME.md` 第10节）：无 Redis/token 黑名单、无自动化测试框架、前端暂无路由守卫。
-- 下一步：**Phase 2（`phase-2-rooms`：房间系统）**，开工前先读一遍 `FULLREADME.md` 第9节确认范围。
+- 房间系统：创建房间（模式选择→参数设置，竞猜/接龙两种）、加入房间（私人邀请码 / 公开房间列表）、房间大厅页（邀请码展示、玩家列表、房主可改设置/切换公开私人）。
+- 后端：房间状态纯内存管理（`rooms` Map）、设置项校验（严格按范围拒绝，不做静默 clamp）、词库读取（`backend/wordbanks/*.txt`，已放 3 个示例分类）、`GET /api/wordbanks`、`GET /api/rooms/public`、完整 Socket.io 房间协议。协议细节见 `FULLREADME.md` 第11节。
+- **断线重连**：60 秒宽限期内重连自动归位，超时正式移出房间（房主顺延/房间清空），细节见 `FULLREADME.md` 第11.1节。
+- 安全自查：修了 `room:joinByCode` 无限流可被暴力猜邀请码的问题（新增内存滑动窗口限流器）；另有两条已知取舍未修（同用户无限建房占内存、socket payload 无额外大小限制），记在 `FULLREADME.md` 第10节 Phase 2 审查表。
+- 前端：`useRoom()` composable 管理房间实时状态，路由补上了 `requiresAuth` 守卫（Phase 1 记录的已知取舍已解决）。
+- 验证方式：写了一个不在仓库里的 Node 测试脚本，跑通了完整协议（含真实触发 60 秒超时踢出的场景，用 `DISCONNECT_GRACE_MS_OVERRIDE` 缩短等待时间验证）；前端 `vite build` / `vite dev` 均通过。没有引入自动化测试框架，判断和 Phase 1 一样暂不必要。
+- 游戏内玩法（画板、计分、开始对局等）完全没有实现，房间大厅页明确提示"游戏开始功能将在后续 Phase 实现"。
+- 下一步：**Phase 3（画板引擎）**，开工前先读一遍 `FULLREADME.md` 第9节确认范围。
 
 ## 交接须知
 

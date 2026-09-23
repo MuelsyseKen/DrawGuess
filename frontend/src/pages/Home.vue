@@ -1,9 +1,11 @@
 <script setup>
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuth } from '../stores/auth';
 import AuthModal from '../components/AuthModal.vue';
 
 const auth = useAuth();
+const router = useRouter();
 const showAuthModal = ref(false);
 const placeholderMsg = ref('');
 
@@ -16,10 +18,19 @@ async function handleLogout() {
 }
 
 function handleRoomEntryClick(kind) {
-  placeholderMsg.value = `「${kind}」将在 Phase 2（房间系统）中实现，目前只是占位入口`;
-  setTimeout(() => {
-    placeholderMsg.value = '';
-  }, 2500);
+  if (!auth.state.user) {
+    placeholderMsg.value = '请先登录';
+    setTimeout(() => {
+      placeholderMsg.value = '';
+    }, 2000);
+    showAuthModal.value = true;
+    return;
+  }
+  if (kind === 'create') {
+    router.push({ name: 'create' });
+  } else {
+    router.push({ name: 'join' });
+  }
 }
 </script>
 
@@ -42,11 +53,11 @@ function handleRoomEntryClick(kind) {
       <p class="subtitle">Muelsyse &amp; long_ken &amp; Claude</p>
 
       <div class="entry-cards">
-        <button type="button" class="entry-card" @click="handleRoomEntryClick('创建房间')">
+        <button type="button" class="entry-card" @click="handleRoomEntryClick('create')">
           <span class="entry-icon">🎨</span>
           <span class="entry-label">创建房间</span>
         </button>
-        <button type="button" class="entry-card" @click="handleRoomEntryClick('加入房间')">
+        <button type="button" class="entry-card" @click="handleRoomEntryClick('join')">
           <span class="entry-icon">🚪</span>
           <span class="entry-label">加入房间</span>
         </button>
