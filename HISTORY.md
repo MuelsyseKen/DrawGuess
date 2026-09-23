@@ -26,3 +26,25 @@
 - 用户提出：为了避免多个对话/多个 AI 同时改动导致混乱，希望引入"Phase（阶段）"概念——每个 Phase 对应一次对话、一条 GitHub 分支，做完确认无误后再合并到 `main`。参考的是 `muelsyseken-launcher` 项目已经在用的分支模式。
 - 据此把整个开发拆成 7 个 Phase（详见 `FULLREADME.md` 第9节）：骨架+账号 → 房间系统 → 画板引擎 → 竞猜模式 → 接龙模式 → 战绩/排行榜 → 响应式打磨+部署收尾。如果后续发现某个 Phase 范围太大，可以在开工前再拆子 Phase，不需要回来改这份文档的编号体系。
 - 用户提到之后会提供一个**仅限本仓库**的细粒度 GitHub Token，权限只有 **Contents** 和 **Pull Requests**。据此在 `Agents.md` 里加了一条硬性规则：**AI 不自行合并 PR**，必须等用户明确确认后才能合并——即便 Token 权限理论上可能覆盖到合并接口，这条规则也不因为"技术上能做到"而松动。同时明确 Token 没有 Actions/Issues/仓库设置等权限，不要去尝试这些操作。
+
+---
+
+## 2026-09-23 —— Phase 1（骨架 + 账号系统）开发
+
+- 从最新 `main` 拉出 `phase-1-skeleton-auth` 分支，按 `FULLREADME.md` 第9节 Phase 1 的范围开发：项目骨架 + 账号系统。
+- **SQLite 驱动选择**：Node 22 自带实验性 `node:sqlite`，本地验证可用，但官方标注"随时可能变动"，风险偏高，改用生态成熟的 `better-sqlite3`；容器里验证过能装预编译二进制，不需要本地编译工具链。
+- **鉴权方案**：文档没有明确规定鉴权方式，选择了 JWT + httpOnly cookie（`jsonwebtoken` + `bcryptjs`），没有引入 Redis/session store 等更重的方案，符合 `Agents.md` "不擅自引入重型依赖"的要求；`bcryptjs` 用纯 JS 实现而非 `bcrypt`，同样是为了避免原生编译的不确定性。
+- **用户名/密码校验规则**：文档未定义具体规则，本 Phase 自行拍板为"用户名 3~20 位字母/数字/下划线/中文，密码 6~72 位"，记在这里供后续确认；如需调整，改 `backend/src/routes/auth.js` 里的正则和长度常量即可。
+- **前端状态管理**：账号状态只用 Vue3 内置的 `reactive`/`readonly` 做了一个轻量 `useAuth()` composable，没有引入 Pinia——Phase 1 只有登录态这一项全局状态，等后续 Phase 状态变复杂了再评估。
+- **创建/加入房间入口**：大厅页按 `FULLREADME.md` 第3节把入口 UI 做出来了，但点击后只弹出"Phase 2 实现"的提示，不含任何房间逻辑，避免跨 Phase 写代码。
+- **`game_records` / `drawings` 表**：按 `FULLREADME.md` 第6节字段草案一并建了表（避免以后改 `users` 表结构引发迁移问题），本 Phase 没有任何代码读写这两张表。
+- 手工验证过：后端全套账号接口（注册/登录/查询当前用户/登出，含用户名重复、密码错误等异常分支）用 curl 跑通；前端 `vite build` 生产构建跑通；前后端本地联调（5173 → 3000）验证过 CORS + cookie 携带正常。没有引入自动化测试框架（Jest/Vitest 等），判断 Phase 1 范围内没有必要，后续如果用户需要可以再补。
+---
+
+## 2026-09-23 —— Phase 1 安全审查修复
+
+- 用户拿着 Deepseek 和 Gemini 两份独立审查意见回来，两份意见高度重合（都点出了 `JWT_SECRET` 弱默认值、cookie 属性不一致导致登出失效、Socket.io 握手无鉴权这三个核心问题），交叉验证之后可信度较高，按各自建议逐条评估、大部分直接修了。具体清单和验证记录见 `FULLREADME.md` 第10节"安全问题跟踪"，不在这里重复。
+- **补充了一条流程规范**：以后涉及鉴权/账号相关代码的 Phase，收尾前要过一遍安全自查，发现的问题不管修没修都要登记到 `FULLREADME.md` 第10节，写进了 `Agents.md`。这样以后不用每次都靠"用户拿着第三方审查回来"才发现问题。
+- **明确没有采纳的建议**：Redis/token 黑名单——两份审查都提到"登出不会让旧 token 失效"，但这是 JWT 无状态特性的固有取舍，引入 Redis 属于 `Agents.md` 明令禁止的"未经确认的重型依赖"，Phase 1 阶段不做，记在跟踪表里作为已知取舍，不是遗漏。
+- **改了但两份审查都没提到的一点**：`created_at`/`played_at` 的默认值从 `datetime('now')` 换成了 `strftime` 输出的标准 ISO 8601 格式（带毫秒和 `Z` 后缀）——这条其实是 Deepseek 提的"建议改"项，评估后发现是这批修复里最不涉及连锁改动的一条，顺手一起做了，开发库直接删除重建（Phase 1 还没有需要保留的正式数据）。
+- 全部修复项跑了一遍手工验证：注册/登录/me/登出（确认 cookie 真的被清掉、清完之后 `me` 返回 401）、`NODE_ENV=production` 时不设 `JWT_SECRET` 会直接拒绝启动、`Authorization: Bearer` 头不再能单独鉴权、连续 21 次登录请求第 20 次开始触发限流（429）。前端 `vite build` 重新跑过确认没有因为输入框加 `minlength`/`maxlength` 出问题。

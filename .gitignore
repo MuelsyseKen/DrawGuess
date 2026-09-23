@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Env files (secrets) — commit .env.example only
+.env
+.env.local
+
+# Backend runtime data
+backend/data/*.sqlite
+backend/data/*.sqlite-shm
+backend/data/*.sqlite-wal
+
+# Frontend build output
+frontend/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
