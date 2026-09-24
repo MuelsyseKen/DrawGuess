@@ -248,7 +248,10 @@ onMounted(async () => {
         </form>
       </section>
 
-      <p class="hint start-hint">游戏开始功能将在后续 Phase 实现，当前只支持房间管理。</p>
+      <p class="hint start-hint">
+        游戏开始功能将在后续 Phase 实现，当前只支持房间管理。
+        <router-link :to="{ name: 'canvas-test', params: { id: room.state.room.id } }">试试画板引擎（Phase 3 测试页）</router-link>
+      </p>
     </template>
   </div>
 </template>

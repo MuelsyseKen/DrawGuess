@@ -4,6 +4,7 @@
 const store = require('../rooms/store');
 const { validateSettings, validateMode } = require('../rooms/validateSettings');
 const rateLimit = require('../utils/rateLimit');
+const canvasStore = require('../canvas/store');
 
 // 邀请码是 6 位大写字母+数字（约 33^6 ≈ 12.9 亿种组合），单次猜中概率很低，
 // 但没有限流的话，脚本可以在短时间内发起海量尝试去撞库存活跃房间。
@@ -61,12 +62,16 @@ function attachRoomHandlers(io, socket) {
 
       // 同一用户只能在一个房间里：先把旧房间清掉（如果有）
       const prev = store.removePlayer(user.id);
-      if (prev && !prev.closed) {
+      if (prev) {
         socket.leave(roomChannel(prev.room.id));
-        broadcastRoom(io, prev.room.id, 'room:playerLeft', {
-          userId: user.id,
-          newHostUserId: prev.newHostUserId,
-        });
+        if (prev.closed) {
+          canvasStore.destroySession(prev.room.id);
+        } else {
+          broadcastRoom(io, prev.room.id, 'room:playerLeft', {
+            userId: user.id,
+            newHostUserId: prev.newHostUserId,
+          });
+        }
       }
 
       const room = store.createRoom({
@@ -105,12 +110,16 @@ function attachRoomHandlers(io, socket) {
     }
 
     const prev = store.removePlayer(user.id);
-    if (prev && !prev.closed && prev.room.id !== room.id) {
+    if (prev && prev.room.id !== room.id) {
       socket.leave(roomChannel(prev.room.id));
-      broadcastRoom(io, prev.room.id, 'room:playerLeft', {
-        userId: user.id,
-        newHostUserId: prev.newHostUserId,
-      });
+      if (prev.closed) {
+        canvasStore.destroySession(prev.room.id);
+      } else {
+        broadcastRoom(io, prev.room.id, 'room:playerLeft', {
+          userId: user.id,
+          newHostUserId: prev.newHostUserId,
+        });
+      }
     }
 
     const player = store.addPlayer(room, { userId: user.id, username: user.username, socketId: socket.id });
@@ -137,12 +146,16 @@ function attachRoomHandlers(io, socket) {
     }
 
     const prev = store.removePlayer(user.id);
-    if (prev && !prev.closed && prev.room.id !== room.id) {
+    if (prev && prev.room.id !== room.id) {
       socket.leave(roomChannel(prev.room.id));
-      broadcastRoom(io, prev.room.id, 'room:playerLeft', {
-        userId: user.id,
-        newHostUserId: prev.newHostUserId,
-      });
+      if (prev.closed) {
+        canvasStore.destroySession(prev.room.id);
+      } else {
+        broadcastRoom(io, prev.room.id, 'room:playerLeft', {
+          userId: user.id,
+          newHostUserId: prev.newHostUserId,
+        });
+      }
     }
 
     const player = store.addPlayer(room, { userId: user.id, username: user.username, socketId: socket.id });
@@ -163,6 +176,7 @@ function attachRoomHandlers(io, socket) {
     socket.leave(roomChannel(result.room.id));
     if (result.closed) {
       broadcastRoom(io, result.room.id, 'room:closed', { reason: 'empty' });
+      canvasStore.destroySession(result.room.id);
     } else {
       broadcastRoom(io, result.room.id, 'room:playerLeft', {
         userId: user.id,
@@ -219,6 +233,7 @@ function attachRoomHandlers(io, socket) {
       if (!result) return;
       if (result.closed) {
         broadcastRoom(io, result.room.id, 'room:closed', { reason: 'empty' });
+        canvasStore.destroySession(result.room.id);
       } else {
         broadcastRoom(io, result.room.id, 'room:playerLeft', {
           userId: timedOutUserId,

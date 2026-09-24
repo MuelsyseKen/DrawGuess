@@ -67,16 +67,17 @@ npm run dev         # http://localhost:5173
 
 ## 当前进度
 
-**Phase 2（`phase-2-rooms`）开发已完成，PR 待提交/待用户确认合并。**
+**Phase 3（`phase-3-canvas-engine`）开发已完成，PR 待提交/待用户确认合并。Phase 2 的 PR 也仍待确认合并（见下）。**
 
-- 房间系统：创建房间（模式选择→参数设置，竞猜/接龙两种）、加入房间（私人邀请码 / 公开房间列表）、房间大厅页（邀请码展示、玩家列表、房主可改设置/切换公开私人）。
-- 后端：房间状态纯内存管理（`rooms` Map）、设置项校验（严格按范围拒绝，不做静默 clamp）、词库读取（`backend/wordbanks/*.txt`，已放 3 个示例分类）、`GET /api/wordbanks`、`GET /api/rooms/public`、完整 Socket.io 房间协议。协议细节见 `FULLREADME.md` 第11节。
-- **断线重连**：60 秒宽限期内重连自动归位，超时正式移出房间（房主顺延/房间清空），细节见 `FULLREADME.md` 第11.1节。
-- 安全自查：修了 `room:joinByCode` 无限流可被暴力猜邀请码的问题（新增内存滑动窗口限流器）；另有两条已知取舍未修（同用户无限建房占内存、socket payload 无额外大小限制），记在 `FULLREADME.md` 第10节 Phase 2 审查表。
-- 前端：`useRoom()` composable 管理房间实时状态，路由补上了 `requiresAuth` 守卫（Phase 1 记录的已知取舍已解决）。
-- 验证方式：写了一个不在仓库里的 Node 测试脚本，跑通了完整协议（含真实触发 60 秒超时踢出的场景，用 `DISCONNECT_GRACE_MS_OVERRIDE` 缩短等待时间验证）；前端 `vite build` / `vite dev` 均通过。没有引入自动化测试框架，判断和 Phase 1 一样暂不必要。
-- 游戏内玩法（画板、计分、开始对局等）完全没有实现，房间大厅页明确提示"游戏开始功能将在后续 Phase 实现"。
-- 下一步：**Phase 3（画板引擎）**，开工前先读一遍 `FULLREADME.md` 第9节确认范围。
+- **画板引擎**：Canvas 工具栏（画笔粗细、橡皮擦、线条擦、油漆桶、取色器、RGB 颜色/当前颜色）、矢量动作协议（`stroke`/`fill`/`lineErase`/`clear` 组成的"动作日志"，非位图）、多端实时同步（画的过程实时广播预览，落笔后广播最终动作）、按玩家维度的撤销/重做、全局清空。协议细节见 `FULLREADME.md` 第12节。
+- **范围内的开放假设（等待用户确认）**：Phase 3 只做引擎本身，没有做"仅作画者可画"的权限限制——房间内任意在线玩家都能画/撤销/清空，这条留给 Phase 4/5 接入真实对局流程时在这层协议上加。已记入 `FULLREADME.md` 第10节 #21。
+- 后端：`backend/src/canvas/store.js`（内存动作日志 + 按用户的撤销/重做栈）、`backend/src/canvas/validate.js`（输入校验，不合法直接拒绝）、`backend/src/socket/canvas.js`（`canvas:` 前缀的 Socket.io 事件）；房间销毁时同步清理对应的画板会话（`socket/rooms.js` 里补了 `canvasStore.destroySession` 调用）。
+- 前端：`frontend/src/canvas/useCanvas.js`（协议 composable，本地镜像动作可见性规则，和后端 `getVisibleActions` 对应）、`frontend/src/canvas/CanvasBoard.vue`（可复用的画板组件，Phase 4/5 的游戏页面会直接引入）、`frontend/src/canvas/floodFill.js`（油漆桶泛洪填充）、`frontend/src/canvas/hitTest.js`（线擦命中检测）。
+- **测试入口**：Phase 4/5 的正式游戏页面还没做，本 Phase 在房间大厅页加了一个"画板引擎测试"入口（`/room/:id/canvas-test`），明确标注为测试页而非正式游戏页面。
+- 安全自查：记了两条已知取舍（`canvas:strokeProgress` 无限流/节流、上面提到的"任意玩家可画"权限假设），见 `FULLREADME.md` 第10节 Phase 3 审查表 #20/#21。
+- 验证方式：写了一个不在仓库里的 Node 测试脚本，用两个模拟客户端跑通了完整协议——实时预览转发、落笔广播、非法输入拒绝、油漆桶、线擦（含"擦除已被擦除的笔迹"应拒绝）、撤销/重做（含线擦的撤销=恢复笔迹、重做=再次擦除）、清空（含清空后撤销/重做栈失效）、非房间成员访问被拒绝，全部通过。前端 `vite build` / `vite dev` 均通过。没有引入自动化测试框架/浏览器自动化测试，延续 Phase 1/2 的判断。
+- 竞猜/接龙的具体游戏流程（抽词、回合流转、计分、聊天）仍然完全没有实现。
+- 下一步：**Phase 4（竞猜模式完整玩法）**，开工前先读一遍 `FULLREADME.md` 第9节确认范围，并请用户确认上面提到的"任意玩家可画"这条开放假设该怎么收紧。
 
 ## 交接须知
 
