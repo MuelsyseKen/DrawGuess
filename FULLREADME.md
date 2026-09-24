@@ -225,6 +225,13 @@
 | 18 | 房间/对局状态纯内存 + 无持久化是既定设计，但也意味着**没有任何全局配额**：同一个登录用户可以无限制地连续 `room:create`，每次都会占一块内存直到房间清空，理论上可以刷内存做 DoS | 人工自查 | [ ] 已知取舍，暂不解决 | Phase 2 范围判断没必要现在加限流/配额，房间数据结构很小（一个房间对象 + 玩家列表），本地部署/小规模场景下影响有限；如果以后要开放公网给不特定人群用，需要在这里补一个"同用户同时持有房间数"或"总房间数"上限。 |
 | 19 | Socket.io 事件 payload 没有做显式大小限制，理论上可以传超大 `settings` 对象等奇怪内容进来（虽然 `validateSettings` 会因为字段类型不对而拒绝，不会真正落库，但校验本身要花时间解析这个大对象） | 人工自查 | [ ] 已知取舍，暂不解决 | Socket.io 自带的 `maxHttpBufferSize`（默认 1MB）已经是一层兜底；Phase 2 没有看到需要单独收紧的理由，先记录，等真的观察到滥用再调整。 |
 
+### Phase 3 审查（2026-09-24，人工自查，画板协议涉及高频用户输入，按规范加做一轮）
+
+| # | 问题 | 发现方式 | 状态 | 备注 |
+|---|---|---|---|---|
+| 20 | `canvas:strokeProgress`（实时预览）没有 ack、没有限流/节流，纯靠客户端 `pointermove` 原生触发频率广播；正常使用下频率有限，但恶意客户端可以绕过前端直接高频发这个事件，刷房间内所有人的带宽 | 人工自查 | [ ] 已知取舍，暂不解决 | 落地动作（`strokeEnd`/`fill`/`eraseStroke`/`undo`/`redo`/`clear`）都要写日志，天然受 Socket.io 默认 1MB payload 上限和"每次都是完整校验"的开销约束；`strokeProgress` 是转发广播、不落日志、开销小，Phase 3 判断没必要现在加限流，等以后真的观察到滥用（本地部署/小规模场景发生的可能性低）再补一个"每 socket 每秒最多广播 N 次"的节流。 |
+| 21 | `canvas:` 事件的权限目前是"房间内任意在线玩家都能画/撤销/清空"，没有"仅作画者可操作"的限制 | 人工自查 | [ ] 已知取舍，本 Phase 明确的设计假设，非疏漏 | 见第12.1节"范围说明"：Phase 3 只做引擎本身，"谁能画"是 Phase 4/5 游戏规则的范畴；已在 PR 描述里向用户标注，等待确认这个假设，Phase 4/5 开工前会在这层协议上加一层"当前是否轮到你画"的校验。 |
+
 ---
 
 ## 11. 房间系统协议（Phase 2）
@@ -322,5 +329,97 @@
 | `room:closed` | `{ reason: 'empty' }` | 最后一名玩家离开/超时移出，房间销毁 |
 
 前端对应页面（第3节）：创建房间-模式选择页 → 创建房间-参数设置页（调用 `room:create`）→ 房间大厅页（订阅上述广播事件，房主可再次打开设置面板调用 `room:updateSettings`/`room:setPublic`）；加入房间-私人（`room:joinByCode`）/ 加入房间-公开（先 `GET /api/rooms/public` 拉列表，选中后 `room:joinPublic`）。
+
+---
+
+## 12. 画板引擎协议（Phase 3）
+
+**范围说明**：Phase 3 只做"画板引擎"本身——工具栏、矢量协议、多端实时同步、撤销/重做/清空——不做"谁能画"的游戏规则（那是 Phase 4/5 竞猜/接龙玩法里"作画者"身份的范畴）。因此本节协议里，**房间内任意在线玩家都可以画**，没有"仅作画者可画"的权限限制；Phase 4/5 接入真实对局流程时，会在这一层协议之上加一层"当前是否轮到你画"的校验，不需要改这里定义的事件形状。这条是本 Phase 的一个开放假设，已在 PR 里向用户标注，等待确认（`Agents.md` 第5条）。
+
+同理，Phase 4/5 之前没有"游戏内页面"，Phase 3 通过房间大厅页新增的一个"画板引擎测试"入口（`/room/:id/canvas-test`）来承载联调，明确标注为测试入口，不是正式游戏页面；正式游戏页面搭建时会直接复用这里做的 `CanvasBoard.vue` 组件和 `useCanvas()` composable。
+
+### 12.1 设计原则
+
+- 画板状态按**动作日志（action log）**存储，不是最终位图，呼应 README"画板与回放"一节。一个房间的画板状态 = 对这个日志做一次"折叠"（fold）算出来的当前可见动作集合。
+- 坐标沿用第2节已定的 0~1 归一化比例。
+- 撤销/重做是**按玩家**维度的：每个玩家只能撤销/重做自己做过的动作，不会撤到别人的笔迹。
+- 清空（`canvas:clear`）是全局性的硬重置，**不可撤销**，且会清空所有玩家的撤销/重做栈（避免清空后还能"重做"出清空前的笔迹）。
+- 复合工具语义：
+  - `brush`（画笔）/ `eraser`（橡皮）都产出一个 `stroke` 动作，仅 `tool` 字段不同；渲染时 `eraser` 用 `destination-out` 合成模式做真正的像素擦除，而不是"画一条背景色的笔迹"（避免以后换背景/主题时露馅）。
+  - `bucket`（油漆桶/取色区域）产出一个 `fill` 动作（一个点 + 颜色），客户端用泛洪填充算法在自己的画布位图上执行，服务端只存这个"意图"，不算像素。
+  - `lineEraser`（线擦）**不产出可见笔迹**，而是"擦除整条笔迹"的动作：客户端拖动线擦时在本地做命中检测（碰到哪条已渲染的 `stroke`/`fill` 就整条擦掉），每命中一条就单独提交一次 `canvas:eraseStroke`，服务端记一条 `lineErase` 动作，指向被擦的目标动作 id。这样每条线擦都能被单独撤销/重做（撤销线擦 = 让被擦的那条笔迹重新出现）。
+  - 取色器（拾取画布上的颜色）、RGB 调色、画笔粗细都是纯前端 UI 状态（决定"下一笔用什么颜色/粗细"），不产生协议事件。
+- 动作可见性规则（客户端和服务端用同一套规则渲染/计算）：设 `lastClearIndex` 为日志里最后一条 `clear` 动作的位置（没有则为 -1）；在这之后的动作里，一个 `stroke`/`fill` 动作可见当且仅当：①没有被它自己的所有者撤销（`tombstoned:false`）；②没有被任何未撤销的 `lineErase` 动作指向（`erasedBy:null`）。`lineErase` 动作本身从不渲染，只参与"隐藏目标动作"的计算。
+
+### 12.2 动作（action）数据结构
+
+```js
+// stroke：画笔/橡皮
+{
+  id: 'uuid', type: 'stroke', playerId: 1, tool: 'brush' | 'eraser',
+  color: '#RRGGBB', width: 4, points: [{ x: 0.12, y: 0.34, t: 1234 }, ...],
+  tombstoned: false, erasedBy: null, createdAt: 1700000000000
+}
+// fill：油漆桶
+{
+  id: 'uuid', type: 'fill', playerId: 1,
+  color: '#RRGGBB', point: { x: 0.5, y: 0.5 },
+  tombstoned: false, erasedBy: null, createdAt: 1700000000000
+}
+// lineErase：线擦（指向被擦的目标动作，自己不渲染）
+{
+  id: 'uuid', type: 'lineErase', playerId: 1, targetActionId: 'uuid-of-stroke-or-fill',
+  tombstoned: false, createdAt: 1700000000000
+}
+// clear：清空（全局，不可撤销）
+{ id: 'uuid', type: 'clear', playerId: 1, createdAt: 1700000000000 }
+```
+
+服务端内存结构（`backend/src/canvas/store.js`，独立于 `rooms` store，靠 `roomId` 关联，房间销毁时一并清理）：
+
+```js
+canvasSessions: Map<roomId, {
+  actions: [...],                    // 追加写入的完整日志，只在 clear 时"逻辑截断"（靠 lastClearIndex 计算，不物理删除，为回放留口子）
+  actionIndex: Map<actionId, action>,
+  undoStacks: Map<userId, [actionId, ...]>,   // 该用户当前"可撤销"的动作 id，LIFO
+  redoStacks: Map<userId, [actionId, ...]>,   // 该用户当前"可重做"的动作 id，LIFO
+}>
+```
+
+### 12.3 Socket.io 事件
+
+事件名统一 `canvas:` 前缀，走已有的 `room:<roomId>` channel（不单独开 socket 房间）。所有客户端→服务端事件都要求 `socket.user` 非空且是该房间当前玩家（否则 `NOT_AUTHENTICATED` / `NOT_IN_ROOM`），带 ack 回调，返回 `{ ok:true, ...data }` 或 `{ ok:false, error, message }`。
+
+**客户端 → 服务端**
+
+| 事件 | payload | 说明 |
+|---|---|---|
+| `canvas:getState` | 无 | 返回 `{ ok:true, actions }`：当前房间"折叠"后的可渲染动作列表（按第12.1节可见性规则过滤，只含 `stroke`/`fill`），用于首次进入/刷新页面时整幅重绘 |
+| `canvas:strokeProgress` | `{ tempId, tool, color, width, points }` | **无 ack**，实时广播（不落日志），供其他客户端画"正在画的这一笔"的实时预览 |
+| `canvas:strokeEnd` | `{ tempId, tool, color, width, points }` | 落一条 `stroke` 动作；`tool` 只允许 `'brush'\|'eraser'`；成功后广播 `canvas:actionAdded` |
+| `canvas:fill` | `{ point, color }` | 落一条 `fill` 动作；成功后广播 `canvas:actionAdded` |
+| `canvas:eraseStroke` | `{ targetActionId }` | 落一条 `lineErase` 动作；目标必须存在、类型是 `stroke`/`fill`、当前可见（未撤销且未被擦过），否则 `ACTION_NOT_ERASABLE`；成功后广播 `canvas:strokeErased` |
+| `canvas:undo` | 无 | 弹出该玩家撤销栈顶，标记 `tombstoned:true`（若目标是 `lineErase`，等价于恢复被它擦掉的那条笔迹）；栈空则 `{ ok:true, noop:true }`；成功后广播 `canvas:actionUndone` |
+| `canvas:redo` | 无 | 弹出该玩家重做栈顶，标记 `tombstoned:false`；栈空则 `{ ok:true, noop:true }`；成功后广播 `canvas:actionRedone` |
+| `canvas:clear` | 无 | 追加一条 `clear` 动作，清空所有玩家的撤销/重做栈；成功后广播 `canvas:cleared` |
+
+校验规则：`color` 必须匹配 `#RRGGBB`；`width` 必须是 1~64 的数字；单条 `points` 数组长度上限 2000（超出直接拒绝，`INVALID_STROKE`，一笔正常不可能画出 2000 个点，这个上限只是兜底）；`points` 里每个点的 `x`/`y` 必须在 `[0,1]`、`t` 必须是数字。不合法直接拒绝，不做静默裁剪（沿用 Phase 2 "校验失败就拒绝"的一贯风格）。
+
+**服务端 → 客户端**（广播到 `room:<roomId>`）
+
+| 事件 | payload | 触发时机 |
+|---|---|---|
+| `canvas:strokeProgress` | `{ fromUserId, tempId, tool, color, width, points }` | 转发其他玩家的实时画笔预览（不含发送者自己） |
+| `canvas:actionAdded` | `{ action }` | 新的 `stroke`/`fill` 落地（含发送者自己，用完整版替换本地的实时预览） |
+| `canvas:strokeErased` | `{ targetActionId, eraseActionId, playerId }` | 线擦命中一条笔迹 |
+| `canvas:actionUndone` | `{ actionId, type, targetActionId? }` | 撤销；`type==='lineErase'` 时 `targetActionId` 是重新出现的那条笔迹 id |
+| `canvas:actionRedone` | `{ actionId, type, targetActionId? }` | 重做 |
+| `canvas:cleared` | `{}` | 清空 |
+
+### 12.4 已知限制（记入第10节安全问题跟踪表 #20）
+
+- 线擦只能擦 `stroke`/`fill`，不能擦另一条 `lineErase`（没有"擦除擦除动作"的需求）。
+- 客户端渲染策略是"整幅重绘"（每次收到会改变可见集合的事件就用 `actions` 全量重画一次画布），不做局部脏矩形优化——本地部署/小规模场景下笔迹总量有限，这个简化换取实现正确性，若以后发现性能问题再优化。
+- `canvas:strokeProgress` 的实时预览事件量没有额外节流/采样，纯靠客户端 `pointermove` 的原生触发频率；如果以后出现高频画笔导致带宽问题，可以在客户端加时间/距离阈值采样。
 
 ---

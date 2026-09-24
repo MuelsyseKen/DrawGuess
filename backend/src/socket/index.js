@@ -6,6 +6,7 @@ const cookie = require('cookie');
 const { verifyToken } = require('../utils/token');
 const { COOKIE_NAME } = require('../middleware/auth');
 const { attachRoomHandlers } = require('./rooms');
+const { attachCanvasHandlers } = require('./canvas');
 
 // 握手阶段鉴权：从握手请求头的 Cookie 里取出登录态 token 并校验，
 // 挂到 socket.user 上供后续 Phase 使用；未登录也允许连接（socket.user 为 null），
@@ -42,6 +43,7 @@ function attachSocket(io) {
     console.log(`[socket] connected: ${socket.id} as ${who}`);
 
     attachRoomHandlers(io, socket);
+    attachCanvasHandlers(io, socket);
 
     socket.on('disconnect', (reason) => {
       console.log(`[socket] disconnected: ${socket.id} (${reason})`);
