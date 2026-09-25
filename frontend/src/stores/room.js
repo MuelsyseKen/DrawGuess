@@ -2,6 +2,7 @@
 // 写法参照 stores/auth.js —— 轻量 reactive + composable，不引入 Pinia（Phase 2 状态还不算复杂）。
 import { reactive, readonly } from 'vue';
 import { getSocket, emitAsync } from '../socket/client';
+import router from '../router';
 
 const state = reactive({
   room: null, // 当前所在房间的完整视图，见后端 toPublicRoomView；不在房间里时为 null
@@ -66,6 +67,19 @@ function bindListeners() {
   socket.on('room:closed', () => {
     state.room = null;
     state.disconnectedPlayers = {};
+  });
+
+  // Phase 4：对局开始/结束都会改变 room.status，房间大厅页/公开列表据此同步；
+  // 对局开始时所有房间成员（含房主自己，因为也在房间 channel 里）统一跳转到游戏内页面，
+  // 不需要每个发起方自己单独处理跳转（见 FULLREADME 第13.8节）。
+  socket.on('room:statusUpdated', ({ status }) => {
+    if (!state.room) return;
+    state.room.status = status;
+  });
+
+  socket.on('game:started', () => {
+    if (!state.room) return;
+    router.push({ name: 'guess-game', params: { id: state.room.id } });
   });
 }
 

@@ -12,6 +12,10 @@ const props = defineProps({
   // 对应房间设置里的 brushMode / colorMode（见 FULLREADME 第4节），未传时按"可调节 + RGB"处理
   brushMode: { type: String, default: 'adjustable' }, // 'fixed' | 'adjustable'
   colorMode: { type: String, default: 'rgb' }, // 'rgb' | 'mono'
+  // Phase 4 起：竞猜对局里非作画者传 true，禁用工具栏 + 屏蔽画板交互（见 FULLREADME 第13.4节）。
+  // 这是前端的"双重保险"，真正的权限校验在服务端（canvas.js 的 requireCanDraw），
+  // 就算这里被绕过，服务端也会拒绝，不会出现"前端隐藏了但后端没管"的假安全。
+  readOnly: { type: Boolean, default: false },
 });
 
 const CANVAS_SIZE = 1000; // 内部固定参考分辨率（正方形），响应式只改 CSS 显示尺寸，不改内部坐标系
@@ -147,7 +151,7 @@ function handleLineEraseAt(pt) {
 }
 
 function onPointerDown(evt) {
-  if (!canvas.state.ready) return;
+  if (!canvas.state.ready || props.readOnly) return;
   canvasEl.value.setPointerCapture(evt.pointerId);
   const pt = normalizedFromEvent(evt);
 
@@ -275,31 +279,32 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="canvas-board" ref="wrapEl">
+  <div class="canvas-board" ref="wrapEl" :class="{ 'read-only': readOnly }">
     <aside class="toolbar">
       <div class="tool-group" v-if="brushMode === 'adjustable'">
         <label class="tool-label">画笔粗细</label>
-        <input type="range" min="1" max="64" v-model.number="width" />
+        <input type="range" min="1" max="64" v-model.number="width" :disabled="readOnly" />
         <span class="width-value">{{ width }}px</span>
       </div>
 
       <div class="tool-group tool-buttons">
-        <button type="button" class="tool-btn" :class="{ active: tool === 'brush' }" @click="selectTool('brush')" title="画笔">🖌️</button>
-        <button type="button" class="tool-btn" :class="{ active: tool === 'eraser' }" @click="selectTool('eraser')" title="橡皮擦">🧹</button>
-        <button type="button" class="tool-btn" :class="{ active: tool === 'lineEraser' }" @click="selectTool('lineEraser')" title="线擦（整条擦除）">✂️</button>
-        <button type="button" class="tool-btn" :class="{ active: tool === 'bucket' }" @click="selectTool('bucket')" title="油漆桶">🪣</button>
-        <button type="button" class="tool-btn" :class="{ active: tool === 'colorPicker' }" @click="selectTool('colorPicker')" title="取色器">🎯</button>
+        <button type="button" class="tool-btn" :disabled="readOnly" :class="{ active: tool === 'brush' }" @click="selectTool('brush')" title="画笔">🖌️</button>
+        <button type="button" class="tool-btn" :disabled="readOnly" :class="{ active: tool === 'eraser' }" @click="selectTool('eraser')" title="橡皮擦">🧹</button>
+        <button type="button" class="tool-btn" :disabled="readOnly" :class="{ active: tool === 'lineEraser' }" @click="selectTool('lineEraser')" title="线擦（整条擦除）">✂️</button>
+        <button type="button" class="tool-btn" :disabled="readOnly" :class="{ active: tool === 'bucket' }" @click="selectTool('bucket')" title="油漆桶">🪣</button>
+        <button type="button" class="tool-btn" :disabled="readOnly" :class="{ active: tool === 'colorPicker' }" @click="selectTool('colorPicker')" title="取色器">🎯</button>
       </div>
 
       <div class="tool-group" v-if="colorMode === 'rgb'">
         <label class="tool-label">RGB 颜色</label>
-        <input type="color" v-model="color" class="color-input" />
+        <input type="color" v-model="color" class="color-input" :disabled="readOnly" />
         <div class="palette">
           <button
             v-for="c in COLOR_PRESETS"
             :key="c"
             type="button"
             class="swatch"
+            :disabled="readOnly"
             :class="{ active: color === c }"
             :style="{ background: c }"
             @click="color = c"
@@ -313,9 +318,9 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="tool-group actions">
-        <button type="button" class="action-btn" :disabled="busy.undo" @click="handleUndo">撤回</button>
-        <button type="button" class="action-btn" :disabled="busy.redo" @click="handleRedo">重做</button>
-        <button type="button" class="action-btn danger" :disabled="busy.clear" @click="handleClear">清空</button>
+        <button type="button" class="action-btn" :disabled="readOnly || busy.undo" @click="handleUndo">撤回</button>
+        <button type="button" class="action-btn" :disabled="readOnly || busy.redo" @click="handleRedo">重做</button>
+        <button type="button" class="action-btn danger" :disabled="readOnly || busy.clear" @click="handleClear">清空</button>
       </div>
     </aside>
 
@@ -462,6 +467,14 @@ onBeforeUnmount(() => {
   touch-action: none;
   cursor: crosshair;
   display: block;
+}
+
+.canvas-board.read-only .board {
+  cursor: not-allowed;
+}
+
+.canvas-board.read-only .toolbar {
+  opacity: 0.5;
 }
 
 .error-msg {

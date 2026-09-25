@@ -1,10 +1,13 @@
-// 画板 Socket.io 事件处理（见 FULLREADME.md 第12.3节）。
-// Phase 3 范围：房间内任意在线玩家都可以画/撤销/清空，没有"仅作画者可操作"的限制
-// （见 FULLREADME 12.1 节"范围说明"，这是明确标注等待用户确认的开放假设，不是疏漏）。
+// 画板 Socket.io 事件处理（见 FULLREADME.md 第12.3节 / 第13.4节）。
+// Phase 3 范围：房间没有进行中的对局时（比如 /room/:id/canvas-test 测试页），
+// 房间内任意在线玩家都可以画/撤销/清空。
+// Phase 4 起：房间有进行中的竞猜对局时收紧权限——选词阶段谁都不能画，绘画阶段
+// 只有当前作画者能画（见 game/store.js 的 canDraw，第13.4节"画板权限收紧"）。
 'use strict';
 
 const roomStore = require('../rooms/store');
 const canvasStore = require('../canvas/store');
+const gameStore = require('../game/store');
 const { validateStrokePayload, validateFillPayload, sanitizeProgressPayload } = require('../canvas/validate');
 
 function roomChannel(roomId) {
@@ -48,6 +51,17 @@ function requireRoomMembership(socket, roomId, ack) {
   return room;
 }
 
+// 要求：requireRoomMembership 通过，且当前允许这个用户操作画板（见第13.4节）
+function requireCanDraw(socket, roomId, ack) {
+  const room = requireRoomMembership(socket, roomId, ack);
+  if (!room) return null;
+  if (!gameStore.canDraw(room.id, socket.user.id)) {
+    safeAck(ack, err('NOT_YOUR_TURN', '现在不是你可以画的时候'));
+    return null;
+  }
+  return room;
+}
+
 function attachCanvasHandlers(io, socket) {
   socket.on('canvas:getState', (payload, ack) => {
     const roomId = payload && payload.roomId;
@@ -63,6 +77,7 @@ function attachCanvasHandlers(io, socket) {
     const room = roomStore.getRoomByUserId(socket.user.id);
     const roomId = payload && payload.roomId;
     if (!room || room.id !== roomId) return;
+    if (!gameStore.canDraw(room.id, socket.user.id)) return;
     const clean = sanitizeProgressPayload(payload);
     if (!clean) return;
     socket.to(roomChannel(room.id)).emit('canvas:strokeProgress', {
@@ -76,7 +91,7 @@ function attachCanvasHandlers(io, socket) {
   });
 
   socket.on('canvas:strokeEnd', (payload, ack) => {
-    const room = requireRoomMembership(socket, payload && payload.roomId, ack);
+    const room = requireCanDraw(socket, payload && payload.roomId, ack);
     if (!room) return;
     try {
       const clean = validateStrokePayload(payload);
@@ -96,7 +111,7 @@ function attachCanvasHandlers(io, socket) {
   });
 
   socket.on('canvas:fill', (payload, ack) => {
-    const room = requireRoomMembership(socket, payload && payload.roomId, ack);
+    const room = requireCanDraw(socket, payload && payload.roomId, ack);
     if (!room) return;
     try {
       const clean = validateFillPayload(payload);
@@ -114,7 +129,7 @@ function attachCanvasHandlers(io, socket) {
   });
 
   socket.on('canvas:eraseStroke', (payload, ack) => {
-    const room = requireRoomMembership(socket, payload && payload.roomId, ack);
+    const room = requireCanDraw(socket, payload && payload.roomId, ack);
     if (!room) return;
     const targetActionId = payload && payload.targetActionId;
     if (typeof targetActionId !== 'string' || !targetActionId) {
@@ -133,7 +148,7 @@ function attachCanvasHandlers(io, socket) {
   });
 
   socket.on('canvas:undo', (payload, ack) => {
-    const room = requireRoomMembership(socket, payload && payload.roomId, ack);
+    const room = requireCanDraw(socket, payload && payload.roomId, ack);
     if (!room) return;
     const result = canvasStore.undo(room.id, socket.user.id);
     if (!result) return safeAck(ack, ok({ noop: true }));
@@ -144,7 +159,7 @@ function attachCanvasHandlers(io, socket) {
   });
 
   socket.on('canvas:redo', (payload, ack) => {
-    const room = requireRoomMembership(socket, payload && payload.roomId, ack);
+    const room = requireCanDraw(socket, payload && payload.roomId, ack);
     if (!room) return;
     const result = canvasStore.redo(room.id, socket.user.id);
     if (!result) return safeAck(ack, ok({ noop: true }));
@@ -155,7 +170,7 @@ function attachCanvasHandlers(io, socket) {
   });
 
   socket.on('canvas:clear', (payload, ack) => {
-    const room = requireRoomMembership(socket, payload && payload.roomId, ack);
+    const room = requireCanDraw(socket, payload && payload.roomId, ack);
     if (!room) return;
     canvasStore.clear(room.id, socket.user.id);
     io.to(roomChannel(room.id)).emit('canvas:cleared', {});
