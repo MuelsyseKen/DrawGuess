@@ -5,6 +5,8 @@ const store = require('../rooms/store');
 const { validateSettings, validateMode } = require('../rooms/validateSettings');
 const rateLimit = require('../utils/rateLimit');
 const canvasStore = require('../canvas/store');
+const gameStore = require('../game/store');
+const gameEngine = require('../game/engine');
 
 // 邀请码是 6 位大写字母+数字（约 33^6 ≈ 12.9 亿种组合），单次猜中概率很低，
 // 但没有限流的话，脚本可以在短时间内发起海量尝试去撞库存活跃房间。
@@ -39,6 +41,20 @@ function broadcastRoom(io, roomId, event, payload) {
   io.to(roomChannel(roomId)).emit(event, payload);
 }
 
+// 统一处理"某个 userId 离开了 prevRoom"之后的收尾：房间清空就把画板/对局状态一起清掉；
+// 房间还在就广播 playerLeft，并让对局层（如果这个房间当时有对局在进行）同步这次移出
+// （见 FULLREADME 第13.6节：猜题方/作画者中途被移出对局该怎么处理）。
+function handlePlayerGone(io, prevResult, userId, extra) {
+  const { room, newHostUserId, closed } = prevResult;
+  if (closed) {
+    canvasStore.destroySession(room.id);
+    gameStore.destroySession(room.id);
+  } else {
+    broadcastRoom(io, room.id, 'room:playerLeft', { userId, newHostUserId, ...extra });
+    gameEngine.onPlayerRemoved(io, room.id, userId);
+  }
+}
+
 function attachRoomHandlers(io, socket) {
   // 宽限期重连：如果这个已登录用户此刻正处于"断线倒计时"中，直接把新连接接回原房间，
   // 不需要客户端重新走一遍加入流程；超过 60 秒宽限期的，走正常的"已被移出房间"流程，
@@ -48,6 +64,7 @@ function attachRoomHandlers(io, socket) {
     if (room) {
       socket.join(roomChannel(room.id));
       broadcastRoom(io, room.id, 'room:playerReconnected', { userId: socket.user.id });
+      gameEngine.onPlayerReconnected(io, room.id, socket.user.id);
     }
   }
 
@@ -64,14 +81,7 @@ function attachRoomHandlers(io, socket) {
       const prev = store.removePlayer(user.id);
       if (prev) {
         socket.leave(roomChannel(prev.room.id));
-        if (prev.closed) {
-          canvasStore.destroySession(prev.room.id);
-        } else {
-          broadcastRoom(io, prev.room.id, 'room:playerLeft', {
-            userId: user.id,
-            newHostUserId: prev.newHostUserId,
-          });
-        }
+        handlePlayerGone(io, prev, user.id);
       }
 
       const room = store.createRoom({
@@ -101,6 +111,9 @@ function attachRoomHandlers(io, socket) {
     if (!room) {
       return safeAck(ack, err('INVALID_INVITE_CODE', '邀请码无效'));
     }
+    if (room.status !== 'waiting') {
+      return safeAck(ack, err('ROOM_NOT_FOUND', '对局进行中，暂不可加入'));
+    }
     if (room.players.length >= room.settings.maxPlayers) {
       return safeAck(ack, err('ROOM_FULL', '房间已满'));
     }
@@ -112,14 +125,7 @@ function attachRoomHandlers(io, socket) {
     const prev = store.removePlayer(user.id);
     if (prev && prev.room.id !== room.id) {
       socket.leave(roomChannel(prev.room.id));
-      if (prev.closed) {
-        canvasStore.destroySession(prev.room.id);
-      } else {
-        broadcastRoom(io, prev.room.id, 'room:playerLeft', {
-          userId: user.id,
-          newHostUserId: prev.newHostUserId,
-        });
-      }
+      handlePlayerGone(io, prev, user.id);
     }
 
     const player = store.addPlayer(room, { userId: user.id, username: user.username, socketId: socket.id });
@@ -148,14 +154,7 @@ function attachRoomHandlers(io, socket) {
     const prev = store.removePlayer(user.id);
     if (prev && prev.room.id !== room.id) {
       socket.leave(roomChannel(prev.room.id));
-      if (prev.closed) {
-        canvasStore.destroySession(prev.room.id);
-      } else {
-        broadcastRoom(io, prev.room.id, 'room:playerLeft', {
-          userId: user.id,
-          newHostUserId: prev.newHostUserId,
-        });
-      }
+      handlePlayerGone(io, prev, user.id);
     }
 
     const player = store.addPlayer(room, { userId: user.id, username: user.username, socketId: socket.id });
@@ -176,13 +175,8 @@ function attachRoomHandlers(io, socket) {
     socket.leave(roomChannel(result.room.id));
     if (result.closed) {
       broadcastRoom(io, result.room.id, 'room:closed', { reason: 'empty' });
-      canvasStore.destroySession(result.room.id);
-    } else {
-      broadcastRoom(io, result.room.id, 'room:playerLeft', {
-        userId: user.id,
-        newHostUserId: result.newHostUserId,
-      });
     }
+    handlePlayerGone(io, result, user.id);
     safeAck(ack, ok({}));
   });
 
@@ -233,20 +227,15 @@ function attachRoomHandlers(io, socket) {
       if (!result) return;
       if (result.closed) {
         broadcastRoom(io, result.room.id, 'room:closed', { reason: 'empty' });
-        canvasStore.destroySession(result.room.id);
-      } else {
-        broadcastRoom(io, result.room.id, 'room:playerLeft', {
-          userId: timedOutUserId,
-          newHostUserId: result.newHostUserId,
-          reason: 'timeout',
-        });
       }
+      handlePlayerGone(io, result, timedOutUserId, { reason: 'timeout' });
     });
     if (!room) return; // 断线时不在任何房间里，什么都不用做
     broadcastRoom(io, room.id, 'room:playerDisconnected', {
       userId,
       reconnectTimeoutMs: store.DISCONNECT_GRACE_MS,
     });
+    gameEngine.onPlayerDisconnected(io, room.id, userId);
   });
 }
 

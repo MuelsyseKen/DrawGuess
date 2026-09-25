@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuth } from '../stores/auth';
 import { useRoom } from '../stores/room';
+import { useGame } from '../game/useGame';
 import { fetchWordbanks } from '../api/rooms';
 import { extractErrorMessage } from '../utils/errors';
 import {
@@ -18,10 +19,13 @@ const route = useRoute();
 const router = useRouter();
 const auth = useAuth();
 const room = useRoom();
+const game = useGame();
 
 const loading = ref(true);
 const loadError = ref('');
 const copyHint = ref('');
+const starting = ref(false);
+const startError = ref('');
 
 const editingSettings = ref(false);
 const editError = ref('');
@@ -35,6 +39,26 @@ const isHost = computed(() => {
   if (!room.state.room || !auth.state.user) return false;
   return room.state.room.hostUserId === auth.state.user.id;
 });
+
+// Phase 4：竞猜模式的"开始游戏"入口，见 FULLREADME 第13.8节（接龙模式的入口留给 Phase 5）
+const canStartGuessGame = computed(() => {
+  const r = room.state.room;
+  if (!r || !isHost.value) return false;
+  return r.mode === 'guess' && r.status === 'waiting' && r.players.length >= 2;
+});
+
+async function handleStartGame() {
+  starting.value = true;
+  startError.value = '';
+  try {
+    await game.start();
+    // 跳转由 stores/room.js 订阅的 game:started 广播统一处理，这里不用手动 push
+  } catch (e) {
+    startError.value = extractErrorMessage(e, '开始游戏失败');
+  } finally {
+    starting.value = false;
+  }
+}
 
 async function ensureRoomLoaded() {
   loading.value = true;
@@ -248,10 +272,27 @@ onMounted(async () => {
         </form>
       </section>
 
-      <p class="hint start-hint">
-        游戏开始功能将在后续 Phase 实现，当前只支持房间管理。
+      <p class="hint start-hint" v-if="room.state.room.mode === 'chain'">
+        接龙模式的游戏开始功能将在 Phase 5 实现，当前只支持房间管理。
         <router-link :to="{ name: 'canvas-test', params: { id: room.state.room.id } }">试试画板引擎（Phase 3 测试页）</router-link>
       </p>
+      <section v-else class="start-card">
+        <button
+          v-if="isHost"
+          type="button"
+          class="start-btn"
+          :disabled="!canStartGuessGame || starting"
+          @click="handleStartGame"
+        >
+          {{ starting ? '开始中…' : '开始游戏' }}
+        </button>
+        <p v-else class="hint">等待房主开始游戏…</p>
+        <p v-if="isHost && room.state.room.players.length < 2" class="hint">至少需要 2 名玩家才能开始</p>
+        <p v-if="startError" class="error-msg">{{ startError }}</p>
+        <p class="hint start-hint">
+          <router-link :to="{ name: 'canvas-test', params: { id: room.state.room.id } }">试试画板引擎（Phase 3 测试页）</router-link>
+        </p>
+      </section>
     </template>
   </div>
 </template>
@@ -529,6 +570,27 @@ onMounted(async () => {
 .start-hint {
   text-align: center;
   margin-top: 20px;
+}
+
+.start-card {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.start-btn {
+  border: none;
+  border-radius: 10px;
+  background: var(--accent, #4c8dff);
+  color: #fff;
+  padding: 12px 32px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.start-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 @media (max-width: 480px) {

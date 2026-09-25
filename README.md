@@ -67,17 +67,17 @@ npm run dev         # http://localhost:5173
 
 ## 当前进度
 
-**Phase 3（`phase-3-canvas-engine`）开发已完成，PR 待提交/待用户确认合并。Phase 2 的 PR 也仍待确认合并（见下）。**
+**Phase 4（`phase-4-guess-mode`）开发已完成，PR 待提交/待用户确认合并。Phase 1/2/3 的 PR 均已合并到 main。**
 
-- **画板引擎**：Canvas 工具栏（画笔粗细、橡皮擦、线条擦、油漆桶、取色器、RGB 颜色/当前颜色）、矢量动作协议（`stroke`/`fill`/`lineErase`/`clear` 组成的"动作日志"，非位图）、多端实时同步（画的过程实时广播预览，落笔后广播最终动作）、按玩家维度的撤销/重做、全局清空。协议细节见 `FULLREADME.md` 第12节。
-- **范围内的开放假设（等待用户确认）**：Phase 3 只做引擎本身，没有做"仅作画者可画"的权限限制——房间内任意在线玩家都能画/撤销/清空，这条留给 Phase 4/5 接入真实对局流程时在这层协议上加。已记入 `FULLREADME.md` 第10节 #21。
-- 后端：`backend/src/canvas/store.js`（内存动作日志 + 按用户的撤销/重做栈）、`backend/src/canvas/validate.js`（输入校验，不合法直接拒绝）、`backend/src/socket/canvas.js`（`canvas:` 前缀的 Socket.io 事件）；房间销毁时同步清理对应的画板会话（`socket/rooms.js` 里补了 `canvasStore.destroySession` 调用）。
-- 前端：`frontend/src/canvas/useCanvas.js`（协议 composable，本地镜像动作可见性规则，和后端 `getVisibleActions` 对应）、`frontend/src/canvas/CanvasBoard.vue`（可复用的画板组件，Phase 4/5 的游戏页面会直接引入）、`frontend/src/canvas/floodFill.js`（油漆桶泛洪填充）、`frontend/src/canvas/hitTest.js`（线擦命中检测）。
-- **测试入口**：Phase 4/5 的正式游戏页面还没做，本 Phase 在房间大厅页加了一个"画板引擎测试"入口（`/room/:id/canvas-test`），明确标注为测试页而非正式游戏页面。
-- 安全自查：记了两条已知取舍（`canvas:strokeProgress` 无限流/节流、上面提到的"任意玩家可画"权限假设），见 `FULLREADME.md` 第10节 Phase 3 审查表 #20/#21。
-- 验证方式：写了一个不在仓库里的 Node 测试脚本，用两个模拟客户端跑通了完整协议——实时预览转发、落笔广播、非法输入拒绝、油漆桶、线擦（含"擦除已被擦除的笔迹"应拒绝）、撤销/重做（含线擦的撤销=恢复笔迹、重做=再次擦除）、清空（含清空后撤销/重做栈失效）、非房间成员访问被拒绝，全部通过。前端 `vite build` / `vite dev` 均通过。没有引入自动化测试框架/浏览器自动化测试，延续 Phase 1/2 的判断。
-- 竞猜/接龙的具体游戏流程（抽词、回合流转、计分、聊天）仍然完全没有实现。
-- 下一步：**Phase 4（竞猜模式完整玩法）**，开工前先读一遍 `FULLREADME.md` 第9节确认范围，并请用户确认上面提到的"任意玩家可画"这条开放假设该怎么收紧。
+- **竞猜模式完整玩法**：开始游戏、选词（系统词库抽3选1 / 玩家自定义出题）、回合流转（按加入顺序轮流作画，选词超时自动选/跳过，绘画超时或全员猜中提前结算）、计分（按猜中顺序递减、作画者按猜中人数给分）、聊天+猜词共用输入框（猜中防剧透：猜中即禁言到本回合结束，且猜中消息不广播原文）、结算排名。协议细节见 `FULLREADME.md` 第13节。
+- **画板权限收紧**（解决 Phase 3 记在第10节 #21 的开放假设）：对局进行中，选词阶段谁都不能画，绘画阶段只有当前作画者能画；`/room/:id/canvas-test` 测试页（没有进行中对局）行为不受影响。
+- **计分公式是本 Phase 自己拍的板**（文档只给了方向性描述，没给具体数字），以及"作画者要不要给分"（文档完全没提）——都记在 `FULLREADME.md` 第13.5节和 `HISTORY.md`，请重点看一下这条是否符合预期。
+- 后端：`backend/src/game/store.js`（对局内存状态，纯数据不碰 io）、`backend/src/game/engine.js`（回合编排，持有 io，选词/结算/断线暂停恢复的具体逻辑都在这）、`backend/src/socket/game.js`（`game:` 前缀 Socket.io 事件）；`socket/rooms.js`/`socket/canvas.js` 相应接入了断线钩子和画板权限校验。
+- 前端：`frontend/src/game/useGame.js`（对局状态 composable）、`frontend/src/pages/GuessGame.vue`（正式游戏内页面，含结算视图，路由 `/room/:id/game`）；`CanvasBoard.vue` 新增 `readOnly` prop 做前端侧双重保险；`RoomLobby.vue` 加了"开始游戏"入口（仅竞猜模式）。
+- **断线处理**：沿用房间层已有的 60 秒宽限期，作画者断线会暂停回合倒计时、重连后恢复；被正式移出的话同步更新对局的轮转顺序。有一条记录在案的简化（作画者被强制移出后，下一位从头重新排），见 `HISTORY.md`。
+- 验证方式：写了一个不在仓库里的 Node 测试脚本，跑通了核心链路（开始游戏的各种拒绝条件、选词候选私发、画板权限双向校验、猜中计分广播、猜中后禁言、真实计时流程下的超时自动选词/自动结算/回合轮转/游戏结束排名）。**断线暂停恢复计时器**和**自定义出题模式**这两条只做了代码走读，没有跑真实 socket 脚本覆盖（前者要等满 60 秒宽限期，权衡后没做），请重点体验一下。前端 `vite build` 通过，没有逐个手动点一遍 UI。
+- 接龙模式（Phase 5）仍然完全没有实现。
+- 下一步：**Phase 5（接龙模式完整玩法）**，开工前先读一遍 `FULLREADME.md` 第9节确认范围。断线处理直接沿用第13.6节定下的思路即可，不用重新设计。
 
 ## 交接须知
 

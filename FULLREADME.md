@@ -160,9 +160,8 @@
 
 （开发过程中如果发现新的未决问题，加在这里，解决后移入对应章节并在 `HISTORY.md` 记一笔）
 
-- 竞猜模式下，非作画者看到的"字数提示"具体展示形式未定。
 - 隐形/重力/像素艺术等特殊效果的具体实现，一期不做，仅占位。
-- 断线重连策略：**房间等待阶段（Phase 2）已定** —— 60 秒宽限期内重连自动归位，超时正式移出房间，见第11.1节。**对局进行中（Phase 4/5 的竞猜/接龙玩法）怎么处理断线仍未定**（比如画到一半掉线算不算这轮作废、回合内重连要不要恢复画板状态），留到对应 Phase 开工前再确认。
+- 接龙模式（Phase 5）对局进行中的断线处理，沿用 Phase 4 竞猜模式定下的思路（见第13.6节），具体细节留到 Phase 5 开工前再确认一遍。
 
 ---
 
@@ -421,5 +420,97 @@ canvasSessions: Map<roomId, {
 - 线擦只能擦 `stroke`/`fill`，不能擦另一条 `lineErase`（没有"擦除擦除动作"的需求）。
 - 客户端渲染策略是"整幅重绘"（每次收到会改变可见集合的事件就用 `actions` 全量重画一次画布），不做局部脏矩形优化——本地部署/小规模场景下笔迹总量有限，这个简化换取实现正确性，若以后发现性能问题再优化。
 - `canvas:strokeProgress` 的实时预览事件量没有额外节流/采样，纯靠客户端 `pointermove` 的原生触发频率；如果以后出现高频画笔导致带宽问题，可以在客户端加时间/距离阈值采样。
+
+---
+
+## 13. 竞猜模式完整玩法协议（Phase 4）
+
+**范围说明**：本节把第5.1节的竞猜模式流程落成具体协议。房间大厅页（Phase 2）新增"开始游戏"入口（仅房主、且房间 `mode==='guess'`、`status==='waiting'`、人数 ≥2 时可用）；对局状态挂在 `room.status`（`'waiting' -> 'playing' -> 'waiting'`），对局本身的回合/计分等细节状态**纯内存**，独立于 `rooms/store.js`（类比 `canvas/store.js` 的做法），靠 `roomId` 关联，房间销毁或对局结束时清理。
+
+### 13.1 对局数据结构（内存，`backend/src/game/store.js`）
+
+```js
+games: Map<roomId, {
+  mode: 'guess',
+  turnOrder: [userId, ...],       // 开始游戏那一刻的玩家加入顺序快照，本局固定不变
+  round: 1,                        // 当前第几轮（1-based），总轮数 = room.settings.rounds
+  turnIndex: 0,                    // 当前轮里，轮到 turnOrder 里第几位作画
+  drawerId: userId,
+  phase: 'choosingWord' | 'drawing',
+  wordCandidates: ['词1','词2','词3'] | null,  // 仅 wordSource==='system' 时有值，只服务端持有
+  word: '当前谜底' | null,          // 只服务端持有；choosingWord 阶段为 null
+  turnDeadline: 1700000000000 | null, // drawing 阶段的绘画截止时间戳；choosingWord 阶段为选词截止时间戳
+  correctGuessers: [{ userId, rank, score }],  // 本回合已猜中的玩家，按猜中顺序
+  scores: Map<userId, number>,      // 累计得分，跨回合累加
+  timers: { phaseTimer },           // Node setTimeout 句柄，不对外暴露
+}>
+```
+
+- `turnOrder` 只在开始游戏时快照一次；之后中途加入的玩家（理论上房间 `status:'playing'` 时新玩家不能加入，见13.6节）不会被塞进本局轮次，只有下一局重新开始才会用最新玩家列表。
+- 选词候选/谜底**只服务端持有 + 只发给作画者**，其余玩家收到的是"字数提示"（见13.3节），避免通过协议 payload 泄题。
+
+### 13.2 词库来源与选词
+
+- `wordSource==='system'`：沿用 `backend/src/wordbanks/index.js` 的 `pickWords(category, 3)` 抽 3 个候选词给作画者选；`wordSource==='custom'`：跳过候选环节，作画者直接输入自定义词（服务端只做"非空、去首尾空格、长度 1~20"的基本校验，不做敏感词过滤——一期没有这个要求，不在这个 Phase 加）。
+- `choosingWord` 阶段有超时（固定 20 秒，不在房间设置项里，属于"选词"这个环节本身的兜底，不是"绘画时间"）：作画者超时未选词/未输入，服务端**自动**从候选里随机选一个（`custom` 模式超时则强制跳过本回合，直接进入下一位，记 0 分，因为没有词就没法进入绘画阶段）。
+
+### 13.3 字数提示（解决第8节遗留问题）
+
+非作画者收到的 `game:turnStarted` 不含 `word`，只有 `wordLength`（谜底的字符数，中文按字符数不按拼音）；前端按 `wordLength` 渲染成等量占位符（比如"＿ ＿ ＿"），不做"提前展示部分汉字"之类的渐进提示——一期只做这个最简单的形式，更复杂的提示策略留到以后有需要再加。
+
+### 13.4 画板权限收紧（解决 Phase 3 遗留的开放假设，第10节 #21）
+
+`backend/src/socket/canvas.js` 里所有会改变画板状态的事件（`strokeEnd`/`fill`/`eraseStroke`/`undo`/`redo`/`clear`）新增一层校验：如果该房间当前有进行中的 Phase 4 对局（`games` 里存在这个 `roomId` 且 `phase==='drawing'`），只有 `socket.user.id === game.drawerId` 才允许操作，其他人一律 `NOT_YOUR_TURN`。`choosingWord` 阶段（还没进入绘画）画板保持锁定（谁都不能画，包括作画者本人——词还没选定）。房间没有进行中对局时（`status:'waiting'`，比如还在 `/room/:id/canvas-test` 测试页玩），行为不变，沿用 Phase 3"任意在线玩家可画"的规则——测试页不受这层限制影响。
+
+### 13.5 计分规则（细化第5.1节"按回答顺序递减加分"）
+
+规则文档只给了方向性描述（"越早猜对分越高，最后阶段只有参与分，猜不中不加分"），没有给具体公式，本 Phase 按此拍板一版：
+
+- 设本回合"猜题方"人数（除作画者外的在场玩家数）为 `N`，某玩家是第 `rank`（1-based）个猜中的：得分 `= max(20, 100 - (rank - 1) * 15)`，即第1名100分，第2名85分，依次递减，最低封顶在20分（"最后阶段只有参与分"）。
+- 猜不中（回合结束时仍未猜中）：0 分。
+- **作画者得分**（文档没提，本 Phase 的开放假设，见 `HISTORY.md`）：`10 × 本回合猜中人数`，猜的人越多、猜得越快画得越好这件事本身没法直接量化，用"猜中人数"作为画得好不好的代理指标，激励作画者好好画而不是随便画糊弄。
+- 所有回合结束后，按累计得分从高到低排名，出现平分时按 `userId` 稳定排序（不做特殊并列名次逻辑，一期不需要）。
+
+### 13.6 断线处理（解决第8节遗留问题）
+
+对局中的断线沿用房间层已有的 60 秒宽限期机制（第11.1节），不单独做一套：
+
+- **作画者断线**：`socket:disconnect` 触发房间层 `room:playerDisconnected` 的同时，游戏层暂停当前回合的绘画倒计时（`turnDeadline` 顺延，暂停时长 = 断线时长，不让"画到一半掉线"白白吃掉画画时间）；60 秒内重连则倒计时恢复、画板状态本来就在服务端画板日志里不会丢；超过 60 秒被房间层正式移出，游戏层监听到"玩家被移出"事件后，把当前回合直接判定结束（本回合无人得分，含作画者），跳到下一位作画者继续（`turnOrder` 里把这个 `userId` 摘掉，不影响后续轮次）。
+- **猜题方断线**：不影响当前回合进行，其他人继续猜/计时不受影响；60 秒内重连可以继续参与本回合剩余时间的竞猜；超时被正式移出的话，游戏层把它从 `turnOrder` 里摘掉（不影响它是否作过画——已经算过的分数保留在 `scores` 里，只是后续轮次不会再排到它）。
+- **房间在对局进行中被销毁**（比如就剩最后一人也退出了）：游戏层 `games` 状态跟 `rooms`/`canvas` 一样清理掉，不做特殊处理。
+- **对局进行中不允许新玩家加入**：`room:joinByCode`/`room:joinPublic` 在 `room.status==='playing'` 时直接拒绝（`ROOM_NOT_FOUND`，复用"房间不可加入"的错误码，不新开一个错误类型），文案提示"对局进行中，暂不可加入"。`room:joinPublic` 从 Phase 2 起就已经显式检查 `status==='waiting'`；`room:joinByCode` 之前没查（邀请码加入不经过公开列表筛选），这个 Phase 补上这一条检查。
+
+### 13.7 Socket.io 事件
+
+事件名统一 `game:` 前缀，走已有的 `room:<roomId>` channel。除标注"无 ack"外都要求 `socket.user` 非空且是该房间当前玩家，带 ack 回调，返回 `{ ok:true, ...data }` 或 `{ ok:false, error, message }`（新增错误码：`NOT_HOST`/`GAME_ALREADY_RUNNING`/`NOT_ENOUGH_PLAYERS`/`NO_ACTIVE_GAME`/`NOT_YOUR_TURN`/`ALREADY_GUESSED_CORRECTLY`/`INVALID_WORD`）。
+
+**客户端 → 服务端**
+
+| 事件 | payload | 说明 |
+|---|---|---|
+| `game:start` | 无 | 仅房主；`room.status` 须为 `'waiting'`、`mode==='guess'`、玩家数 ≥2；成功后 `room.status='playing'`，广播 `game:started` |
+| `game:chooseWord` | `{ word }` | 仅当前作画者、仅 `phase==='choosingWord'`；`wordSource==='system'` 时 `word` 必须在本回合候选里，`custom` 时接受任意 1~20 字符的词 |
+| `game:chat` | `{ text }` | 聊天 + 猜词共用；服务端判断：作画者/已猜中玩家发送 → 正常按聊天广播（已猜中玩家发送会被拒绝，见下）；其余人发送则比对谜底，猜中广播 `game:correctGuess`（不广播原文，防剧透），猜不中按普通聊天广播 |
+| `game:getState` | 无 | 断线重连/刷新页面兜底同步：返回当前对局完整状态（作画者本人额外带 `word`/`wordCandidates`，其他人不带） |
+
+**服务端 → 客户端**（广播到 `room:<roomId>`，除标注外都含全部字段给所有人；"仅作画者"的字段通过 `socket.emit` 单独私发给作画者的 socket，不走房间广播）
+
+| 事件 | payload | 触发时机 |
+|---|---|---|
+| `game:started` | `{ turnOrder, round, totalRounds }` | `game:start` 成功，所有客户端据此跳转到游戏内页面 |
+| `game:turnStarted` | 广播：`{ drawerId, round, totalRounds, phase:'choosingWord', deadline }`；仅作画者私发额外一条 `game:wordChoices`：`{ candidates }`（`wordSource==='custom'` 时不发这条，作画者前端改成显示输入框） | 每个新回合开始，进入选词阶段 |
+| `game:wordChosen` | 广播：`{ wordLength, deadline }`（`deadline` 是绘画阶段截止时间）；仅作画者私发一条 `game:wordRevealed`：`{ word }` | 作画者选完词（或超时自动选），画板解锁，进入 `drawing` 阶段 |
+| `game:chatMessage` | `{ userId, text }` | 普通聊天（含作画者的话、已用完机会的猜测），原样广播 |
+| `game:correctGuess` | `{ userId, rank, score }` | 有人猜中（不含词本身） |
+| `game:turnEnded` | `{ drawerId, word, correctGuessers: [{userId, rank, score}], drawerScore, scores }` | 绘画倒计时到/所有人猜中/作画者断线超时；`word` 这时候才公开给所有人；`scores` 是更新后的累计分 |
+| `game:ended` | `{ scores, ranking: [{userId, score, rank}] }` | 最后一轮最后一个回合结束；`room.status` 同时改回 `'waiting'` |
+| `room:statusUpdated` | `{ status }` | `room.status` 变化时广播（`'waiting'->'playing'` 开始游戏、`'playing'->'waiting'` 对局结束），房间大厅页/公开列表相关 UI 据此同步，不复用 `room:settingsUpdated`（那个事件语义是"设置变了"，状态变化是另一回事，混用会让前端难判断到底该刷新哪部分） |
+| `game:timerResumed` | `{ deadline }` | 作画者断线宽限期内重连，暂停的回合倒计时恢复，广播新的 `deadline` 供客户端倒计时组件重新对齐 |
+
+### 13.8 页面（对应第3节第7、8项）
+
+- `frontend/src/pages/GuessGame.vue`：正式游戏内页面，路由 `/room/:id/game`，直接复用 `CanvasBoard.vue`（作画者可画，非作画者组件仍挂载但因13.4节的服务端权限校验，画的动作会被拒绝——前端另外用 `isMyTurn` 隐藏/禁用非作画者的工具栏，双重保险，不是只靠前端隐藏）。布局按第5.1节：中间题目+倒计时、左侧工具栏、右侧玩家列表+分数、下方聊天/猜词输入框共用、最下方撤回/重做/清空。
+- 结算展示直接做成 `GuessGame.vue` 内的一个状态切换（收到 `game:ended` 后切到结算视图），不单独拆一个路由页面——排名表 + "返回房间"按钮（点击后 `router.push` 回 `/room/:id`）。
+- `RoomLobby.vue` 补一个"开始游戏"按钮（仅房主、`mode==='guess'`、`status==='waiting'` 时可见）；所有房间成员收到 `game:started` 广播后自动跳转到 `/room/:id/game`（在 `stores/room.js` 里订阅这个事件做跳转，不需要每个页面单独订阅）。
 
 ---
