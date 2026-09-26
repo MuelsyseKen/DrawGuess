@@ -161,7 +161,6 @@
 （开发过程中如果发现新的未决问题，加在这里，解决后移入对应章节并在 `HISTORY.md` 记一笔）
 
 - 隐形/重力/像素艺术等特殊效果的具体实现，一期不做，仅占位。
-- 接龙模式（Phase 5）对局进行中的断线处理，沿用 Phase 4 竞猜模式定下的思路（见第13.6节），具体细节留到 Phase 5 开工前再确认一遍。
 
 ---
 
@@ -229,7 +228,24 @@
 | # | 问题 | 发现方式 | 状态 | 备注 |
 |---|---|---|---|---|
 | 20 | `canvas:strokeProgress`（实时预览）没有 ack、没有限流/节流，纯靠客户端 `pointermove` 原生触发频率广播；正常使用下频率有限，但恶意客户端可以绕过前端直接高频发这个事件，刷房间内所有人的带宽 | 人工自查 | [ ] 已知取舍，暂不解决 | 落地动作（`strokeEnd`/`fill`/`eraseStroke`/`undo`/`redo`/`clear`）都要写日志，天然受 Socket.io 默认 1MB payload 上限和"每次都是完整校验"的开销约束；`strokeProgress` 是转发广播、不落日志、开销小，Phase 3 判断没必要现在加限流，等以后真的观察到滥用（本地部署/小规模场景发生的可能性低）再补一个"每 socket 每秒最多广播 N 次"的节流。 |
-| 21 | `canvas:` 事件的权限目前是"房间内任意在线玩家都能画/撤销/清空"，没有"仅作画者可操作"的限制 | 人工自查 | [ ] 已知取舍，本 Phase 明确的设计假设，非疏漏 | 见第12.1节"范围说明"：Phase 3 只做引擎本身，"谁能画"是 Phase 4/5 游戏规则的范畴；已在 PR 描述里向用户标注，等待确认这个假设，Phase 4/5 开工前会在这层协议上加一层"当前是否轮到你画"的校验。 |
+| 21 | `canvas:` 事件的权限目前是"房间内任意在线玩家都能画/撤销/清空"，没有"仅作画者可操作"的限制 | 人工自查 | [x] 已解决 | Phase 4 引入 `requireCanDraw`（第13.4节），对局进行中收紧为"仅当前作画者可画"；Phase 5 接龙模式同理收紧为"仅这一回合轮到你的链可画"（第14.5节）。测试页（无对局）行为不变。 |
+
+### Phase 4 审查（2026-09-26，人工自查，Phase 5 开工前先补一轮——Phase 4 当时合并前没有走完整的安全审查登记流程，属于流程漏做，这次一并补上）
+
+| # | 问题 | 发现方式 | 状态 | 备注 |
+|---|---|---|---|---|
+| 22 | `game:chat`（聊天+猜词共用入口）没有限流，可以高频刷屏 | 人工自查 | [ ] 已知取舍，暂不解决 | 和 #20 是同一类"高频用户输入没有节流"的已知取舍，本地部署/小规模场景风险有限；聊天内容经 Vue 模板插值渲染（项目里确认没有任何 `v-html` 用法），不存在 XSS 风险，只是没有防刷屏节流。 |
+| 23 | `game:chooseWord`/自定义出题的词内容没有敏感词过滤 | 人工自查（FULLREADME 第13.2节原文已提及） | [ ] 已知取舍，暂不解决 | 第13.2节写明"一期没有这个要求，不在这个 Phase 加"，本次复查确认这个决定没有安全含义（不涉及权限/越权，只是内容审核范畴），维持原判。 |
+| 24 | 猜中/选词/结算等私发事件（`game:wordChoices`/`game:wordRevealed`）走查确认只用 `emitToUser`（按 `socketId` 单播）发送，没有误用房间广播 | 人工自查（走读代码，非自动化验证） | [x] 已解决 | 逐条核对 `game/engine.js` 里所有 `emitToUser` 调用，确认没有谜底/候选词泄露到房间广播里；配合自检脚本（`test-phase4-regression.js`，不进仓库）验证了非作画者收不到候选词、看不到谜底原文。 |
+
+### Phase 5 审查（2026-09-26，人工自查，接龙模式新增了"一房间多画板""全员同时行动"两套 Phase 4 没有的机制，按规范加做一轮）
+
+| # | 问题 | 发现方式 | 状态 | 备注 |
+|---|---|---|---|---|
+| 25 | `chain:*` 回合内事件（`chooseWord`/`finishDraw`/`submitGuess`/`vote`）没有限流，和 #20/#22 是同一类已知取舍 | 人工自查 | [ ] 已知取舍，暂不解决 | 理由同 #20/#22，不重复展开；这几个事件都有明确的状态机校验（阶段不对/角色不对直接拒绝），不存在"重复调用导致状态错乱"的问题（已用自检脚本验证重复选词/重复提交猜测/重复投票都被正确拒绝），只是没有频率限制。 |
+| 26 | 接龙模式画板改成"一房间多块"（复合 key），需要确认新玩家/恶意客户端不能跨链读写别人的画板 | 人工自查 + 自检脚本验证 | [x] 已解决 | `chain/store.js` 的 `canDraw` 严格校验"当前这一回合的轮转公式算出来的人是不是你"；`canvas:getState`（只读）沿用原有的"房间成员即可读"，不额外收紧（同13.4节对测试页的处理思路一致，读取不算敏感操作，看到的也只是别人正在画/已经画完的东西，不是谜底文本）。自检脚本专门验证了"非当前轮到的人尝试画别人的链"会被 `NOT_YOUR_TURN` 拒绝。 |
+| 27 | 评审投票环节的"可投票人"范围（排除链的参与者）如果被绕过，等于允许自己给自己投票、操纵结算分数 | 人工自查 + 自检脚本验证 | [x] 已解决 | `castVote` 校验 `eligibleVoters.includes(userId)`，`eligibleVoters` 在开票那一刻就已经固定算好（房间里排除这条链参与者、且在线的玩家），中途没有办法让参与者混进这个列表；已用自检脚本验证非 eligible 的用户投票会被 `NOT_ELIGIBLE_VOTER` 拒绝（走读确认，链参与者本身不在 `eligibleVoters` 里，天然没法投）。 |
+| 28 | 断线处理改成"不暂停共享倒计时"（第14.7节），需要确认这不会导致恶意批量断线来操纵结算（比如故意断线躲避某一步猜词） | 人工自查 | [ ] 已知取舍，非疏漏 | 故意断线躲避猜词，效果等同于"超时不猜"，本来就会被记成空猜测（`guessWord:null`），不会让这个人凭空获得分数或者让链条更容易通过，反而更可能因为最终词对不上而进入需要投票的分支，不存在"断线更有利"的操纵空间，判断不需要额外处理。 |
 
 ---
 
@@ -514,3 +530,133 @@ games: Map<roomId, {
 - `RoomLobby.vue` 补一个"开始游戏"按钮（仅房主、`mode==='guess'`、`status==='waiting'` 时可见）；所有房间成员收到 `game:started` 广播后自动跳转到 `/room/:id/game`（在 `stores/room.js` 里订阅这个事件做跳转，不需要每个页面单独订阅）。
 
 ---
+
+## 14. 接龙模式完整玩法协议（Phase 5）
+
+**范围说明**：本节把第5.2节的接龙模式流程落成具体协议，架构上尽量复用 Phase 4 的模式（独立的 `chain/store.js` + `chain/engine.js`，`engine.js` 持有 `io`，理由同13节顶部），但接龙模式和竞猜模式有一个根本性的结构差异需要先说清楚：**竞猜模式任意时刻只有一个人在画（其余人在猜），接龙模式任意时刻是所有人同时在各自的一条链上行动**（要么同时在画各自的题，要么同时在猜"上一位传过来的画"）。这决定了下面好几处设计都不能照搬竞猜模式的"单作画者"假设，包括画板要拆成"一房间多块"、回合超时要按"全员完成"而不是"这一个人完成"来推进、断线处理也不能照搬"暂停单个倒计时"的做法。这些差异点在下面对应小节都会标注。
+
+### 14.1 对局数据结构（内存，`backend/src/chain/store.js`）
+
+```js
+sessions: Map<roomId, {
+  turnOrder: [userId, ...],   // 开始游戏那一刻的玩家加入顺序快照，本局固定不变（见14.7节）
+  totalRings: number,          // room.settings.chainRounds（"环数"）
+  totalTurns: totalRings * 2,  // 1 环 = 1 次画 + 1 次猜，见14.2节
+  turn: 1,                     // 当前第几"半环"（1-based），奇数=画，偶数=猜
+  phase: 'choosingWord' | 'drawing' | 'guessing' | 'reviewing' | 'ended',
+  chains: Map<ownerId, {
+    ownerId, ownerIndex,       // ownerIndex = 这条链的 owner 在 turnOrder 里的起始位置
+    originalWord, wordCandidates, autoFail, currentDrawWord,
+    steps: [{ turn, type:'draw'|'guess', by, word?, guessWord?, actions?, timedOut? }],
+  }>,
+  turnDeadline, doneUsers, chosenOwners, removedUserIds,
+  scores: Map<userId, number>,
+  review: { order, index, votes, eligibleVoters, voteDeadline },
+  timers: { phaseTimer },
+}>
+```
+
+- 每个玩家同时是"一条链的 owner"，`chains` 的 key 就是 `turnOrder` 里的每个 `userId`，一一对应，没有"旁观者"或者"没有自己链"的玩家。
+- `doneUsers` 是"这一回合已经完成动作的人"的集合（绘画阶段=点了"提前完成作画"或被强制判定完成；猜词阶段=已提交猜测），用来判断"是否全员都已完成，可以提前结束这一步、不用等到超时"（见14.4节）。
+
+### 14.2 回合轮转公式（解决第8节遗留问题）
+
+以 `N` 个玩家为例，`chainRounds` 设置项（"环数"）记为 `K`，总回合数 `totalTurns = 2K`：**奇数回合画、偶数回合猜，交替进行**。第 `turn` 回合（1-based），负责某条链（owner 在 `turnOrder` 里的位置是 `ownerIndex`）的玩家是：
+
+```
+turnOrder[(ownerIndex + turn - 1) % N]
+```
+
+也就是说每条链每回合都往后传一位（`turnOrder` 里的下一位），`turn=1` 时这个公式正好算出 owner 自己（`ownerIndex+0`），所以"第1回合每个人画自己选的词"和"这条公式"是同一件事，不需要为 `turn=1` 单独写一条判断。这条公式是本 Phase 对第5.2节例子（3人 A/B/C，画/猜依次轮转一圈）的形式化：文档举的例子只到"1环"的前3个回合，"环数"具体怎么换算成总回合数、词是怎么在链之间传递的，文档没有明确写出公式，这是本 Phase 的开放假设，PR 里已重点标注请用户确认。
+
+选词只发生在 `turn===1`（每条链的 owner 给自己的链选起点词，见14.3节）；`turn>1` 的画不需要选词，直接把"上一步猜词的结果"当题目发给这一步的画者（`currentDrawWordFor` 函数：取链上最后一步——一定是一次"猜"——的 `guessWord`）。
+
+### 14.3 选词与超时
+
+- 系统出题（`wordSource==='system'`）：`turn===1` 时给**每条链的 owner 同时**发一条私有的候选词（复用 `wordbanks.pickWords`），各自独立选，不用等别人；超时（固定20秒，同13.2节的 `CHOOSE_WORD_TIMEOUT_MS`）自动从候选里随机选一个。
+- 自定义出题（`wordSource==='custom'`）：owner 直接输入；超时没输入的链标记 `autoFail=true`（`originalWord` 保持 `null`），这条链从一开始就没有起点词，结算时（14.6节）直接判不通过，不进入投票——文档没规定这种情况怎么处理，本 Phase 按"没有词就没法比对首尾是否一致"的思路直接判定，属于开放假设。
+- `turn>1` 的画（拿"上一位猜的词"作画）不需要选词这一步，也没有超时的概念——那一步"要画什么"是确定的（上一步猜出的词，哪怕是 `null`，前端提示"对方没写猜测，自由发挥"）。
+
+### 14.4 绘画/猜词阶段的"全员完成"推进（第14节顶部提到的结构性差异）
+
+竞猜模式一个回合只有一个作画者，超时或这一个人操作完就结束回合；接龙模式一个回合是**全员同时**在各自的链上行动，因此"回合结束"的判定改成"全员都已完成 或 到达共享的 `turnDeadline`"（`chain/store.js` 的 `allDoneForTurn`），任何一个人晚交也不影响别人先交的部分：
+
+- 绘画阶段：每个人可以点"提前完成作画"（`chain:finishDraw`）主动标记自己这一步已完成；也可以什么都不点，等 `drawSeconds` 超时被强制判定完成（画多少算多少，可能是空白）。
+- 猜词阶段：提交猜测（`chain:submitGuess`）本身就是"完成"的标志，不需要单独的"完成"按钮；超时未提交记一条 `guessWord:null` 的猜测（`timedOut:true`），链条继续往下走，不会因为一个人没交就卡住整条链。
+- 一旦全员都完成（或超时），立刻推进到下一步，不必等到 `turnDeadline`——这条在自检脚本里专门验证过（全员提前完成作画后应该在 5 秒内进入猜词阶段，不是傻等满 10 秒超时）。
+
+### 14.5 画板：一个房间多块独立画板
+
+接龙模式一个房间在绘画阶段同时有 `N` 块画板在被 `N` 个人分别画（各自的链），不能像竞猜模式那样直接用 `roomId` 当 `canvas/store.js` 的 key（那样所有人会画到同一块板上）。做法：
+
+- `chain/store.js` 导出 `chainCanvasKey(roomId, chainOwnerId) = \`${roomId}::chain::${chainOwnerId}\`` 这个复合 key，`canvas/store.js` 本身**完全不改**——它的 key 只是个不透明字符串，多一层复合 key 对它来说无感知。
+- `backend/src/socket/canvas.js` 的所有画板事件（`getState`/`strokeEnd`/`fill`/`eraseStroke`/`undo`/`redo`/`clear`/`strokeProgress`）新增可选的 `chainOwnerId` 字段：带了这个字段就用复合 key + 转去 `chain/store.js` 的 `canDraw`（这条链这一回合是不是轮到你画）；不带（竞猜模式、测试页）行为完全不变，两套逻辑互不影响，靠 `chainOwnerId` 是否存在分流，不是靠 `room.mode` 硬编码分支（这样以后要是有第三种模式也不用再改这个文件）。
+- 广播事件（`canvas:actionAdded` 等）都带上 `chainOwnerId`（竞猜模式/测试页固定是 `null`），前端 `useCanvas.js` 按"当前 `enter()` 绑定的是哪个 `roomId`+`chainOwnerId`"过滤广播，避免别的链的动作（比如它被清空重置）误伤当前正在显示的这一块——因为同一个客户端在同一时刻只需要看一块画板（自己正在画的，或者正在看的别人那块），这个本地镜像继续保持模块级单例，没有为接龙模式改成"多实例"。
+- 猜词阶段展示"要猜的画"：不额外把 `actions` 塞进 `chain:imageToGuess` 私聊事件里重复发一份，前端 `CanvasBoard` 会用 `canvas:getState` + 拿到的 `chainOwnerId` 自己去查，跟画者刚画完时服务端保留的画板状态是同一份数据源，不会出现"两份画面数据不一致"的问题。
+- 每次开始新的一步"画"（`beginDrawPhase`），对应链的画板先 `clear()` 一次（同13.4节"每回合开始清空画板"的做法），保证这条链上一步残留的图不会串到这一步。
+
+### 14.6 结算规则（细化第5.2节"评分环节"）
+
+全部 `totalTurns` 回合跑完后，进入 `reviewing` 阶段，**按 `turnOrder` 顺序**（即每条链 owner 的加入顺序）依次公示每一条链，公示节奏：广播这条链完整的历史（起点词、每一步是谁画的/谁猜的、画面、最终是否一致）→ 停留 `REVIEW_DISPLAY_MS`（5秒，已一致的情况）或走一轮投票 → 下一条链。文档只给了方向性描述（"一致直接加分；不一致时其他玩家投票是否认可，半数以上同意则加分"），具体分数、"其他玩家"范围、多数阈值都没有给出，本 Phase 按下面这版拍板，PR 里重点标注请用户确认：
+
+- **参与者**：一条链的"参与者"= 这条链的 owner + 所有在这条链上画过/猜过的人（去重）。分数按参与者整体发放，不区分谁画得好谁猜得准——接龙本身是"整条链共同完成"这个概念，拆开算贡献没有意义。
+- **完全一致**（最终猜出的词 === 起点词，字符串精确匹配）：参与者每人 **100 分**，不需要投票，直接公示结果。
+- **起点词从一开始就是空的**（自定义出题超时没输入，`autoFail`）：直接判不通过，0 分，不进入投票——没有原始答案，投票也没有意义。
+- **不一致但有原始答案**：进入投票，"其他玩家" = 房间里**排除这条链的参与者**之外、且当前在线（`connected`）的玩家；`anonymousVoting` 设置项决定广播 `chain:voteCast` 时带不带投票人身份和选择（[stated] 用户已确认"匿名投票"只是不显示是谁投的，票数本身仍然公开）；半数以上（**严格多数**，`赞成数 > 可投票人数/2`，比如2个可投票人里1票赞成不算通过，需要2票）同意：参与者每人 **60 分**；不同意或没人投票（超时 `REVIEW_VOTE_TIMEOUT_MS`=20秒，未投视为不赞成）：0 分。
+- **没有人可以投票**（比如房间人数很小、这条链几乎覆盖了所有人）：文档没规定这种边界情况，本 Phase 直接判不通过，记为已知取舍。
+- 全部链公示完后广播 `game:ended`（和竞猜模式共用同一个事件名/payload 形状：`{ scores, ranking }`），`room.status` 改回 `'waiting'`。
+
+### 14.7 断线处理（第14节顶部提到的第二处结构性差异，解决第8节遗留问题）
+
+原计划是"沿用 Phase 4 竞猜模式定下的思路"（第8节），但竞猜模式那套"作画者断线就暂停唯一的那个倒计时"的做法，在接龙模式里不成立——任意时刻是**全员同时**在各自的链上行动，为某一个断线的人暂停共享的 `turnDeadline`，会不公平地拖慢其他仍在线的人（多人游戏被一个掉线的人卡住）。本 Phase 改成更简单的规则，开工前已经和这条一起明确记录，PR 里重点标注请用户确认：
+
+- **不做计时器暂停/恢复**：断线的人这一步就是"没赶上"（画多少算多少/猜词记空），`turnDeadline` 该到点还是到点，不为任何人暂停——`onPlayerDisconnected`/`onPlayerReconnected` 这两个钩子因此是空实现（有意为之，不是遗漏，注释里写清楚了）。60 秒宽限期内重连、且回合还没结束的话，照样可以正常操作（服务端状态没丢）。
+- **正式被移出房间**（超过60秒宽限期）：`turnOrder` 本身**不删除这个人、不重新编号**（不同于竞猜模式的 `turnOrder.splice`）——因为接龙模式的轮转公式（14.2节）是纯粹基于位置的模运算，中途改变数组长度会打乱所有还没轮到的链的分配；改成把这个 `userId` 记进 `removedUserIds` 集合，后续所有轮到他的步骤（不管是画还是猜）自动判定为"已完成"（空白/空猜测），不会卡住其他人，但轮转公式本身照旧不变。这是本 Phase 对"中途有人被移出该怎么继续排"的简化处理，比竞猜模式 `advanceDrawer` 的简化（记录在13.6节/`game/engine.js` 注释里）走得更远一点，因为接龙模式的轮转比竞猜模式的"单指针依次轮换"更依赖固定的位置编号。
+- 剩余在场人数低于 `MIN_PLAYERS_TO_CONTINUE`（2人，和竞猜模式取值一致）时直接提前结算（`endGame`），按已经产生的分数出排名。
+- 房间在对局进行中被销毁：`chain/store.js` 的 session 和这局用到的所有链级画板（`chainCanvasKey` 复合 key）一起清理，不遗留。
+- 对局进行中不允许新玩家加入：复用房间层已有的 `room.status==='playing'` 时拒绝加入的检查（13.6节），没有额外改动。
+
+### 14.8 Socket.io 事件
+
+事件名分两组：`game:start`/`game:getState` 是竞猜/接龙共用的"通用生命周期"事件，`backend/src/socket/game.js` 按 `room.mode` 分发到 `game/engine.js` 或 `chain/engine.js`；接龙模式独有的回合内事件用 `chain:` 前缀，单独在 `backend/src/socket/chain.js` 里处理。新增错误码：`NOT_ENOUGH_PLAYERS`（沿用竞猜模式的错误码名，含义是"接龙模式至少需要4人"）、`ALREADY_CHOSEN`、`ALREADY_SUBMITTED`、`NOT_ELIGIBLE_VOTER`、`ALREADY_VOTED`。
+
+**客户端 → 服务端**
+
+| 事件 | payload | 说明 |
+|---|---|---|
+| `game:start` | 无 | 仅房主；`room.status` 须为 `'waiting'`、`mode==='chain'`、玩家数 ≥4（第4.2节设置范围下限）；成功后广播 `game:started`（`{ mode:'chain', turnOrder, totalTurns }`） |
+| `chain:chooseWord` | `{ word }` | 仅 `turn===1` 的 `choosingWord` 阶段；只能给**自己的链**选词，`wordSource==='system'` 时必须在候选里 |
+| `chain:finishDraw` | 无 | 仅 `drawing` 阶段、且当前这一回合轮到你画；提前标记完成（见14.4节） |
+| `chain:submitGuess` | `{ guess }` | 仅 `guessing` 阶段、且当前这一回合轮到你猜；1~20字符非空 |
+| `chain:vote` | `{ approve }` | 仅 `reviewing` 阶段、且你是当前正在公示的这条链的"可投票人"（14.6节） |
+| `game:getState` | 无 | 断线重连/刷新页面兜底同步：返回当前对局状态（`phase`/`turn`/`scores`/我这回合负责的链和角色等，见 `chain/engine.js` 的 `getStateForUser`）。**已知简化**：重连时如果正处在 `reviewing` 阶段，只返回"第几条/共几条"的进度提示，不重放完整的历史播报，前端从下一条 `chain:reviewChain` 广播开始继续看——评审阶段完整状态重建复杂度较高，记为本 Phase 的简化，见 `HISTORY.md`。 |
+
+画板相关事件（`canvas:*`）复用第12.3节的协议，多一个可选的 `chainOwnerId` 字段（见14.5节）。
+
+**服务端 → 客户端**（广播到 `room:<roomId>`，除标注外都是广播；"仅当事人"的字段单独私发）
+
+| 事件 | payload | 触发时机 |
+|---|---|---|
+| `game:started` | `{ mode:'chain', turnOrder, totalTurns }` | `game:start` 成功 |
+| `chain:turnStarted` | `{ turn, totalTurns, phase, deadline, assignments? }`（`assignments` 是 `[{chainOwnerId, drawerId\|guesserId}]`，绘画/猜词阶段才有，谁负责哪条链是公开信息，不泄题） | 每个新回合/阶段开始 |
+| `chain:wordChoices` | 私发给链的 owner：`{ candidates }` | `turn===1` 选词阶段开始，`wordSource==='system'` 时 |
+| `chain:wordToDraw` | 私发给当前该画的人：`{ chainOwnerId, word, wordLength }` | 绘画阶段开始，`word` 可能是 `null`（上一步没人猜/猜了空） |
+| `chain:imageToGuess` | 私发给当前该猜的人：`{ chainOwnerId }`（不带画面数据，见14.5节） | 猜词阶段开始 |
+| `chain:guessSubmitted` | `{ chainOwnerId, userId }`（不含猜测原文，防剧透，同13.7节 `game:correctGuess` 的思路） | 有人提交了猜测 |
+| `chain:reviewChain` | `{ chainOwnerId, originalWord, steps, matched, participantIds }` | 结算阶段，轮到公示这条链 |
+| `chain:reviewResolved` | `{ chainOwnerId, approved, reason, scoreEach, scores }`（`reason`: `matched`/`noWord`/`noEligibleVoters`） | 这条链不需要投票就能出结果 |
+| `chain:voteOpened` | `{ chainOwnerId, eligibleVoters, deadline, anonymous }` | 这条链需要投票 |
+| `chain:voteCast` | 非匿名：`{ chainOwnerId, userId, approve, voteCount, eligibleCount }`；匿名：`{ chainOwnerId, voteCount, eligibleCount }` | 有人投了票 |
+| `chain:voteResult` | `{ chainOwnerId, approveCount, eligibleCount, approved, scoreEach, scores }` | 投票结束（全部投完或超时） |
+| `game:ended` | `{ scores, ranking }` | 全部链公示完，和竞猜模式共用同一形状 |
+| `room:statusUpdated` | `{ status }` | 同13.7节，`'waiting'<->'playing'` |
+
+### 14.9 页面（对应第3节第7、8项）
+
+- `frontend/src/pages/ChainGame.vue`：正式游戏内页面，路由 `/room/:id/chain-game`（和竞猜模式的 `/room/:id/game` 分开，`stores/room.js` 订阅 `game:started` 时按 `room.mode` 决定跳到哪个路由）。布局按回合的 `phase` 切换：选词（候选按钮/自定义输入框）、绘画（`CanvasBoard` + 题目 + "提前完成作画"按钮，这回合轮不到自己画就只显示等待提示，不挂 `CanvasBoard`）、猜词（`CanvasBoard` 只读模式 + 猜测输入框，轮不到自己猜同样只显示等待提示）、结算（逐条链展示，含历史画作——新增一个 `frontend/src/canvas/ActionsPreview.vue` 轻量静态画板预览组件，从 `CanvasBoard.vue` 抽出纯渲染逻辑到 `frontend/src/canvas/render.js` 共用，因为结算展示要同时静态渲染好几步历史画作，跟 `CanvasBoard` 那套"联网可交互单例状态"的画板不是一回事）。
+- 结算展示复用竞猜模式的思路（`GuessGame.vue` 同款：收到 `game:ended` 后切到排名表 + "返回房间"按钮），不单独拆路由页面。
+- `RoomLobby.vue` 的"开始游戏"入口从"仅竞猜模式可用"改成竞猜/接龙都用同一个按钮，按 `room.mode` 分别做人数门槛校验（竞猜2人/接龙4人）和分发到对应的 `start()`（`useGame`/`useChain` 两个 composable，事件名都是 `game:start`，服务端按 `room.mode` 分发，前端只是各自维护自己模式的本地状态）。
+
+---
+
+

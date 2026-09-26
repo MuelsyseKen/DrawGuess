@@ -71,7 +71,8 @@ function bindListeners() {
 
   // Phase 4：对局开始/结束都会改变 room.status，房间大厅页/公开列表据此同步；
   // 对局开始时所有房间成员（含房主自己，因为也在房间 channel 里）统一跳转到游戏内页面，
-  // 不需要每个发起方自己单独处理跳转（见 FULLREADME 第13.8节）。
+  // 不需要每个发起方自己单独处理跳转（见 FULLREADME 第13.8节 / 第14节）。
+  // Phase 5 起按 room.mode 分流到竞猜/接龙两个不同的游戏内页面。
   socket.on('room:statusUpdated', ({ status }) => {
     if (!state.room) return;
     state.room.status = status;
@@ -79,7 +80,8 @@ function bindListeners() {
 
   socket.on('game:started', () => {
     if (!state.room) return;
-    router.push({ name: 'guess-game', params: { id: state.room.id } });
+    const routeName = state.room.mode === 'chain' ? 'chain-game' : 'guess-game';
+    router.push({ name: routeName, params: { id: state.room.id } });
   });
 }
 
