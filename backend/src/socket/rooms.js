@@ -7,6 +7,16 @@ const rateLimit = require('../utils/rateLimit');
 const canvasStore = require('../canvas/store');
 const gameStore = require('../game/store');
 const gameEngine = require('../game/engine');
+const chainStore = require('../chain/store');
+const chainEngine = require('../chain/engine');
+
+// 断线/移出相关的钩子要转给哪个 engine，取决于这个房间当时是竞猜还是接龙对局
+// （两者互斥：一个房间同一时刻只可能有其中一种 session 存在，见各自 engine 的 startGame）。
+function gameEngineFor(roomId) {
+  if (chainStore.getSession(roomId)) return chainEngine;
+  return gameEngine; // 没有接龙 session 时，按竞猜模式处理（包括两种都没有 session 的情况，
+  // 此时 gameEngine 的这几个钩子本身也是"找不到 session 就直接返回"，是安全的 no-op）。
+}
 
 // 邀请码是 6 位大写字母+数字（约 33^6 ≈ 12.9 亿种组合），单次猜中概率很低，
 // 但没有限流的话，脚本可以在短时间内发起海量尝试去撞库存活跃房间。
@@ -49,9 +59,19 @@ function handlePlayerGone(io, prevResult, userId, extra) {
   if (closed) {
     canvasStore.destroySession(room.id);
     gameStore.destroySession(room.id);
+    // 接龙模式一个房间同时有 N 条链、N 块独立画板（见第14.5节），房间清空时要把这些
+    // 复合 key 的画板会话也一并清掉，否则每盘接龙对局都会在 canvas/store.js 里留下
+    // 再也没人访问的残留 session（Phase 5 引入的清理点，Phase 3/4 的单画板房间不受影响）。
+    const chainSession = chainStore.getSession(room.id);
+    if (chainSession) {
+      for (const ownerId of chainSession.chains.keys()) {
+        canvasStore.destroySession(chainStore.chainCanvasKey(room.id, ownerId));
+      }
+    }
+    chainStore.destroySession(room.id);
   } else {
     broadcastRoom(io, room.id, 'room:playerLeft', { userId, newHostUserId, ...extra });
-    gameEngine.onPlayerRemoved(io, room.id, userId);
+    gameEngineFor(room.id).onPlayerRemoved(io, room.id, userId);
   }
 }
 
@@ -64,7 +84,7 @@ function attachRoomHandlers(io, socket) {
     if (room) {
       socket.join(roomChannel(room.id));
       broadcastRoom(io, room.id, 'room:playerReconnected', { userId: socket.user.id });
-      gameEngine.onPlayerReconnected(io, room.id, socket.user.id);
+      gameEngineFor(room.id).onPlayerReconnected(io, room.id, socket.user.id);
     }
   }
 
@@ -235,7 +255,7 @@ function attachRoomHandlers(io, socket) {
       userId,
       reconnectTimeoutMs: store.DISCONNECT_GRACE_MS,
     });
-    gameEngine.onPlayerDisconnected(io, room.id, userId);
+    gameEngineFor(room.id).onPlayerDisconnected(io, room.id, userId);
   });
 }
 

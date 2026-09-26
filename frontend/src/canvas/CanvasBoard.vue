@@ -4,8 +4,8 @@
 // 不需要重写画板逻辑，只需要在外层加"当前是否轮到你画"之类的权限判断（见第12.1节范围说明）。
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { useCanvas } from './useCanvas';
-import { floodFill } from './floodFill';
 import { hitTestStroke } from './hitTest';
+import { CANVAS_SIZE, toPx, drawPath, drawAction } from './render';
 
 const props = defineProps({
   roomId: { type: String, required: true },
@@ -16,9 +16,12 @@ const props = defineProps({
   // 这是前端的"双重保险"，真正的权限校验在服务端（canvas.js 的 requireCanDraw），
   // 就算这里被绕过，服务端也会拒绝，不会出现"前端隐藏了但后端没管"的假安全。
   readOnly: { type: Boolean, default: false },
+  // Phase 5 起：接龙模式一个房间里同时存在多条链、多个独立画板，传这个字段告诉
+  // useCanvas 去操作哪一条链的画板（见 FULLREADME 第14.5节）；不传时行为不变，
+  // 沿用"每个房间一块画板"的 Phase 3/4 语义（测试页、竞猜模式都不用传）。
+  chainOwnerId: { type: [String, Number], default: null },
 });
 
-const CANVAS_SIZE = 1000; // 内部固定参考分辨率（正方形），响应式只改 CSS 显示尺寸，不改内部坐标系
 const FIXED_WIDTH = 4;
 const MONO_COLOR = '#000000';
 const COLOR_PRESETS = ['#000000', '#e53935', '#fb8c00', '#fdd835', '#43a047', '#1e88e5', '#8e24aa', '#ffffff'];
@@ -56,46 +59,6 @@ function normalizedFromEvent(evt) {
   const x = (evt.clientX - rect.left) / rect.width;
   const y = (evt.clientY - rect.top) / rect.height;
   return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
-}
-
-function toPx(pt) {
-  return { x: pt.x * CANVAS_SIZE, y: pt.y * CANVAS_SIZE };
-}
-
-function drawPath(ctx, points, strokeColor, strokeWidth, erase) {
-  if (points.length === 0) return;
-  ctx.save();
-  ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
-  ctx.strokeStyle = strokeColor;
-  ctx.fillStyle = strokeColor;
-  ctx.lineWidth = strokeWidth;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  if (points.length === 1) {
-    const p = toPx(points[0]);
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, strokeWidth / 2, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    ctx.beginPath();
-    const p0 = toPx(points[0]);
-    ctx.moveTo(p0.x, p0.y);
-    for (let i = 1; i < points.length; i++) {
-      const p = toPx(points[i]);
-      ctx.lineTo(p.x, p.y);
-    }
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function drawAction(ctx, action) {
-  if (action.type === 'stroke') {
-    drawPath(ctx, action.points, action.color, action.width, action.tool === 'eraser');
-  } else if (action.type === 'fill') {
-    const p = toPx(action.point);
-    floodFill(ctx, CANVAS_SIZE, CANVAS_SIZE, p.x, p.y, action.color);
-  }
 }
 
 function redraw() {
@@ -143,7 +106,7 @@ function handleLineEraseAt(pt) {
     if (eraseDragSeen.has(action.id)) continue;
     if (hitTestStroke(action, pt.x, pt.y, radius)) {
       eraseDragSeen.add(action.id);
-      canvas.eraseStroke(props.roomId, action.id).catch(() => {
+      canvas.eraseStroke(props.roomId, props.chainOwnerId, action.id).catch(() => {
         // 极小概率的竞态（比如别人同时擦了同一条），忽略即可，不打断当前拖拽
       });
     }
@@ -161,7 +124,7 @@ function onPointerDown(evt) {
     return;
   }
   if (tool.value === 'bucket') {
-    canvas.fill(props.roomId, { point: pt, color: color.value }).catch(() => {});
+    canvas.fill(props.roomId, props.chainOwnerId, { point: pt, color: color.value }).catch(() => {});
     return;
   }
   if (tool.value === 'lineEraser') {
@@ -197,7 +160,7 @@ function onPointerMove(evt) {
   if (now - lastProgressAt >= PROGRESS_MIN_INTERVAL_MS && distOk) {
     lastProgressAt = now;
     lastProgressPoint = pt;
-    canvas.sendStrokeProgress(props.roomId, {
+    canvas.sendStrokeProgress(props.roomId, props.chainOwnerId, {
       tempId: own.tempId,
       tool: tool.value,
       color: color.value,
@@ -221,7 +184,7 @@ function onPointerUp() {
   if (points.length === 0) return;
 
   canvas
-    .strokeEnd(props.roomId, {
+    .strokeEnd(props.roomId, props.chainOwnerId, {
       tempId: own.tempId,
       tool: tool.value,
       color: color.value,
@@ -237,7 +200,7 @@ function onPointerUp() {
 async function handleUndo() {
   busy.undo = true;
   try {
-    await canvas.undo(props.roomId);
+    await canvas.undo(props.roomId, props.chainOwnerId);
   } finally {
     busy.undo = false;
   }
@@ -246,7 +209,7 @@ async function handleUndo() {
 async function handleRedo() {
   busy.redo = true;
   try {
-    await canvas.redo(props.roomId);
+    await canvas.redo(props.roomId, props.chainOwnerId);
   } finally {
     busy.redo = false;
   }
@@ -255,7 +218,7 @@ async function handleRedo() {
 async function handleClear() {
   busy.clear = true;
   try {
-    await canvas.clear(props.roomId);
+    await canvas.clear(props.roomId, props.chainOwnerId);
   } finally {
     busy.clear = false;
   }
@@ -268,10 +231,23 @@ function selectTool(t) {
 }
 
 onMounted(async () => {
-  await canvas.enter(props.roomId);
+  await canvas.enter(props.roomId, props.chainOwnerId);
   await nextTick();
   redraw();
 });
+
+// 接龙模式（第14节）里同一个 CanvasBoard 实例可能在不同回合被复用、但指向不同的链
+// （chainOwnerId 变化，比如从"我在画链A"切到之后"我在画链C"）；防御性地重新 enter 一次，
+// 保证画板镜像切到新的那一条链，不残留上一条链的动作。
+watch(
+  () => props.chainOwnerId,
+  async (val, oldVal) => {
+    if (val === oldVal) return;
+    await canvas.enter(props.roomId, val);
+    await nextTick();
+    redraw();
+  }
+);
 
 onBeforeUnmount(() => {
   // 不销毁服务端会话（房间销毁时后端自己清），这里只是离开这个组件的视图

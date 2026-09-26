@@ -6,6 +6,7 @@ import JoinRoom from '../pages/JoinRoom.vue';
 import RoomLobby from '../pages/RoomLobby.vue';
 import CanvasTest from '../pages/CanvasTest.vue';
 import GuessGame from '../pages/GuessGame.vue';
+import ChainGame from '../pages/ChainGame.vue';
 import { useAuth } from '../stores/auth';
 
 // 页面地图（见 FULLREADME.md 第3节）：
@@ -13,7 +14,7 @@ import { useAuth } from '../stores/auth';
 //   Phase 2 补上创建房间（模式选择/参数设置）、加入房间、房间大厅页。
 //   Phase 3 补上 /room/:id/canvas-test——画板引擎的联调测试页，不是正式游戏页面（见 FULLREADME 第12节）。
 //   Phase 4 补上 /room/:id/game——竞猜模式正式游戏内页面（含结算，见 FULLREADME 第13节）。
-//   接龙模式的游戏内页面留给 Phase 5。
+//   Phase 5 补上 /room/:id/chain-game——接龙模式正式游戏内页面（含结算，见 FULLREADME 第14节）。
 const routes = [
   { path: '/', name: 'home', component: Home },
   { path: '/create', name: 'create', component: CreateRoomMode, meta: { requiresAuth: true } },
@@ -22,6 +23,7 @@ const routes = [
   { path: '/room/:id', name: 'room-lobby', component: RoomLobby, meta: { requiresAuth: true } },
   { path: '/room/:id/canvas-test', name: 'canvas-test', component: CanvasTest, meta: { requiresAuth: true } },
   { path: '/room/:id/game', name: 'guess-game', component: GuessGame, meta: { requiresAuth: true } },
+  { path: '/room/:id/chain-game', name: 'chain-game', component: ChainGame, meta: { requiresAuth: true } },
 ];
 
 const router = createRouter({
