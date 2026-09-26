@@ -21,6 +21,7 @@ function createSession(roomId, { turnOrder, totalRounds }) {
     turnDeadline: null,
     correctGuessers: [], // [{ userId, rank, score }]
     scores: new Map(), // userId -> 累计得分
+    turnRecords: [], // Phase 6：每回合结束时缓存一份 { drawerId, word, actions }，供 endGame 落库个人作画记录用
     timers: {
       phaseTimer: null,
       phaseTimerCallback: null,

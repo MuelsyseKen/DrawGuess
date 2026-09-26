@@ -17,7 +17,10 @@ async function handleLogout() {
   await auth.logout();
 }
 
-function handleRoomEntryClick(kind) {
+const ROOM_ENTRY_ROUTES = { create: 'create', join: 'join' };
+const NAV_ENTRY_ROUTES = { records: 'records-history', leaderboard: 'leaderboard', drawings: 'my-drawings' };
+
+function requireLoginThen(routeName) {
   if (!auth.state.user) {
     placeholderMsg.value = '请先登录';
     setTimeout(() => {
@@ -26,11 +29,15 @@ function handleRoomEntryClick(kind) {
     showAuthModal.value = true;
     return;
   }
-  if (kind === 'create') {
-    router.push({ name: 'create' });
-  } else {
-    router.push({ name: 'join' });
-  }
+  router.push({ name: routeName });
+}
+
+function handleRoomEntryClick(kind) {
+  requireLoginThen(ROOM_ENTRY_ROUTES[kind]);
+}
+
+function handleNavClick(kind) {
+  requireLoginThen(NAV_ENTRY_ROUTES[kind]);
 }
 </script>
 
@@ -64,6 +71,12 @@ function handleRoomEntryClick(kind) {
       </div>
 
       <p v-if="placeholderMsg" class="placeholder-toast">{{ placeholderMsg }}</p>
+
+      <nav class="nav-links">
+        <button type="button" class="nav-link" @click="handleNavClick('records')">📜 我的战绩</button>
+        <button type="button" class="nav-link" @click="handleNavClick('leaderboard')">🏆 排行榜</button>
+        <button type="button" class="nav-link" @click="handleNavClick('drawings')">🖼️ 我的作画记录</button>
+      </nav>
     </main>
 
     <AuthModal v-if="showAuthModal" @close="showAuthModal = false" />
@@ -165,6 +178,27 @@ function handleRoomEntryClick(kind) {
   margin-top: 24px;
   font-size: 13px;
   color: #999;
+}
+
+.nav-links {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 32px;
+}
+
+.nav-link {
+  border: none;
+  background: none;
+  color: #666;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 4px;
+}
+
+.nav-link:hover {
+  color: var(--accent, #4c8dff);
 }
 
 /* 响应式：小屏幕下入口卡片纵向排列、缩小尺寸 */

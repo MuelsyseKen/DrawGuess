@@ -67,16 +67,13 @@ npm run dev         # http://localhost:5173
 
 ## 当前进度
 
-**Phase 5（`phase-5-chain-mode`）开发已完成，PR 待提交/待用户确认合并。Phase 1/2/3/4 的 PR 均已合并到 main。**
+**Phase 6（`phase-6-records`）开发已完成，PR 待提交/待用户确认合并。Phase 1~5 的 PR 均已合并到 main（Phase 5 接龙模式完整玩法已合并，之前"PR 待确认合并"的状态已过期，`main` 上早就有了）。**
 
-- **接龙模式完整玩法**：开始游戏（至少4人）、选词（系统词库抽3选1 / 玩家自定义出题，每条链的 owner 同时各自选自己的）、按轮转公式在多条链之间传递画/猜（奇数回合画、偶数回合猜，见 `FULLREADME.md` 第14.2节）、全员同时行动的"提前完成/全员完成即推进"机制、结算逐条链公示 + 不一致时的匿名/非匿名投票评审。协议细节见 `FULLREADME.md` 第14节，多处开放假设（回合数换算公式、计分数值、断线处理简化）已在文档里标注，**请重点确认**。
-- **一房间多块画板**：接龙模式同时有多条链在画，`backend/src/canvas/store.js` 本身没改，靠复合 key（`roomId::chain::chainOwnerId`）分开存，`socket/canvas.js` 按 payload 是否带 `chainOwnerId` 分流，竞猜模式/测试页行为完全不受影响（第14.5节）。
-- **断线处理和竞猜模式不一样**：接龙模式任意时刻是全员同时行动，不能照搬"暂停单个作画者倒计时"的做法，改成了"不暂停、断线者这一步算没赶上，正式移出的人后续轮到的步骤自动判定完成"，这条和竞猜模式的思路有实质性差异，见 `FULLREADME.md` 第14.7节，**请重点确认**这个简化是否可接受。
-- 后端：`backend/src/chain/store.js`（对局内存状态）、`backend/src/chain/engine.js`（回合编排/结算评审）、`backend/src/socket/chain.js`（`chain:` 前缀事件）；`socket/game.js` 改成按 `room.mode` 分发 `game:start`/`game:getState`；`socket/canvas.js`/`socket/rooms.js` 相应接入了接龙模式的权限校验和断线钩子分发，竞猜模式路径改动很小（主要是把原来直接调用改成按 mode 分发一层）。
-- 前端：`frontend/src/game/useChain.js`（对局状态 composable）、`frontend/src/pages/ChainGame.vue`（正式游戏内页面，路由 `/room/:id/chain-game`）；新增 `frontend/src/canvas/render.js`（从 `CanvasBoard.vue` 抽出的纯渲染逻辑）和 `frontend/src/canvas/ActionsPreview.vue`（结算展示用的静态画板预览）；`CanvasBoard.vue` 新增 `chainOwnerId` prop；`RoomLobby.vue` 的"开始游戏"入口改成两种模式共用。
-- 验证方式：写了三个不在仓库里的 Node 测试脚本（`socket.io-client`），全部跑通：①核心链路（人数校验、选词/候选私发、轮转公式、画板权限、提前完成/全员提交提前推进、猜对计分、投票评审、结算排名）；②人数不足拒绝开局 + **完全没有任何人操作、纯靠服务端超时把整局从选词一路推到结算跑完**（这条专门覆盖了"没人做任何事"这种最容易被 happy-path 测试漏掉的路径，耗时约140秒，和公式预估一致）；③竞猜模式回归测试（确认 Phase 5 改的三个共用文件没有破坏 Phase 4）。**没有覆盖到的**：真实浏览器多开手动点 UI（只做了 `vite build` 编译检查），断线重连的真实网络断开场景（走读代码确认逻辑，没有真实断网验证）。这两条请重点体验一下。
-- 顺带按用户要求把 **Phase 4 也回归自检了一遍**：补了一遍 Phase 4 当时没走完的安全审查登记（`FULLREADME.md` 第10节新增"Phase 4 审查"表格），并跑了一遍竞猜模式端到端测试（见上一条③）确认没有回归。
-- 下一步：**Phase 6（战绩/排行榜/个人作画记录）**，开工前先读一遍 `FULLREADME.md` 第9节确认范围。
+- **战绩历史 / 排行榜 / 个人作画记录**：`game_records`/`drawings` 两张表从 Phase 1 建表起就在，本 Phase 才第一次有业务代码真正读写。落库时机是每一局 `endGame` 时（正常打完或提前结算都算），一次性把这一局所有参与者的战绩 + 产生的画作用一个事务写进去；竞猜模式的画作是新增 `session.turnRecords` 在每回合结束时从画板快照捕获，接龙模式直接复用 Phase 5 `chain.steps` 里本来就存好的 `actions`，没有另外捕获一套。协议细节见 `FULLREADME.md` 第15节。
+- 后端新增：`backend/src/records/store.js`（写入）、`backend/src/routes/records.js`（`GET /api/records/me`、`/leaderboard`、`/drawings`、`/drawings/:id`，全部要求登录）；`db/init.js` 补了 4 个索引；`game/engine.js`/`game/store.js`/`chain/engine.js` 三个 Phase 4/5 遗留下来的文件做了最小侵入的钩子接入（结算时调用落库，回合结束时捕获画作快照），没有改动这三个文件里任何原有的游戏逻辑分支。
+- 前端新增三个页面：`RecordsHistory.vue`（`/records`）、`Leaderboard.vue`（`/leaderboard`）、`MyDrawings.vue`（`/drawings`，缩略卡片列表 + 点开按需拉取详情用 `ActionsPreview.vue`（Phase 5 结算页那个组件）弹窗回放），`Home.vue` 底部加了三个入口。
+- 验证方式：①store 层单元自检（落库/排行榜聚合/空笔迹跳过等边界）；②REST 层自检（未登录 401、mode 非法 400、越权访问详情 404、分页夹值）；③**端到端回归**——起真实 http+socket.io 服务器跑一整局竞猜模式（开局→选词→作画→猜词→结算），确认 Phase 4 原有链路没有被这次改动破坏，并且结算后 `game_records`/`drawings` 落库结果和 `game:ended` 广播的分数完全一致。三份脚本都不在仓库里。**没有覆盖到的**：接龙模式的端到端落库没有另写单独的 socket 联调（`collectChainDrawings` 读的是 Phase 5 已经验证过的 `session.chains` 数据结构，走读代码确认字段对得上，判断复用 Phase 5 已有的正确性保证已经足够，没有必要为同一件事再跑一遍完整的接龙联调）；真实浏览器多开手动点 UI 三个新页面（只做了 `vite build` 编译检查）。这两条请重点体验一下。
+- 下一步：**Phase 7（响应式适配打磨 / 特殊效果占位 UI 补全 / 本地部署脚本与文档收尾）**，开工前先读一遍 `FULLREADME.md` 第9节确认范围。
 
 ## 交接须知
 

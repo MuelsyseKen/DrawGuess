@@ -7,6 +7,9 @@ import RoomLobby from '../pages/RoomLobby.vue';
 import CanvasTest from '../pages/CanvasTest.vue';
 import GuessGame from '../pages/GuessGame.vue';
 import ChainGame from '../pages/ChainGame.vue';
+import RecordsHistory from '../pages/RecordsHistory.vue';
+import Leaderboard from '../pages/Leaderboard.vue';
+import MyDrawings from '../pages/MyDrawings.vue';
 import { useAuth } from '../stores/auth';
 
 // 页面地图（见 FULLREADME.md 第3节）：
@@ -15,6 +18,7 @@ import { useAuth } from '../stores/auth';
 //   Phase 3 补上 /room/:id/canvas-test——画板引擎的联调测试页，不是正式游戏页面（见 FULLREADME 第12节）。
 //   Phase 4 补上 /room/:id/game——竞猜模式正式游戏内页面（含结算，见 FULLREADME 第13节）。
 //   Phase 5 补上 /room/:id/chain-game——接龙模式正式游戏内页面（含结算，见 FULLREADME 第14节）。
+//   Phase 6 补上 /records（我的战绩）、/leaderboard（排行榜）、/drawings（我的作画记录），见 FULLREADME 第15节。
 const routes = [
   { path: '/', name: 'home', component: Home },
   { path: '/create', name: 'create', component: CreateRoomMode, meta: { requiresAuth: true } },
@@ -24,6 +28,9 @@ const routes = [
   { path: '/room/:id/canvas-test', name: 'canvas-test', component: CanvasTest, meta: { requiresAuth: true } },
   { path: '/room/:id/game', name: 'guess-game', component: GuessGame, meta: { requiresAuth: true } },
   { path: '/room/:id/chain-game', name: 'chain-game', component: ChainGame, meta: { requiresAuth: true } },
+  { path: '/records', name: 'records-history', component: RecordsHistory, meta: { requiresAuth: true } },
+  { path: '/leaderboard', name: 'leaderboard', component: Leaderboard, meta: { requiresAuth: true } },
+  { path: '/drawings', name: 'my-drawings', component: MyDrawings, meta: { requiresAuth: true } },
 ];
 
 const router = createRouter({

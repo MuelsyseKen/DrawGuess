@@ -8,6 +8,7 @@ const helmet = require('helmet');
 const authRoutes = require('./routes/auth');
 const roomsRoutes = require('./routes/rooms');
 const wordbanksRoutes = require('./routes/wordbanks');
+const recordsRoutes = require('./routes/records');
 
 function createApp() {
   const app = express();
@@ -41,6 +42,7 @@ function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/rooms', roomsRoutes);
   app.use('/api/wordbanks', wordbanksRoutes);
+  app.use('/api/records', recordsRoutes);
 
   // 404
   app.use('/api', (req, res) => {
