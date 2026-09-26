@@ -8,6 +8,7 @@ const roomStore = require('../rooms/store');
 const canvasStore = require('../canvas/store');
 const wordbanks = require('../wordbanks');
 const chainStore = require('./store');
+const recordsStore = require('../records/store');
 
 const CHOOSE_WORD_TIMEOUT_MS = 20 * 1000; // 选词兜底时长，和竞猜模式一致（见第13.2节）
 const REVIEW_DISPLAY_MS = 5 * 1000; // 结算时每条链公示结果后，停留展示一段时间再看下一条
@@ -62,20 +63,36 @@ function uniqueParticipants(chain) {
   return [...set];
 }
 
+// Phase 6：接龙模式每一步"画"在 endDrawPhase 时就已经把 { by, word, actions } 存进了
+// chain.steps（第14.4节），不需要像竞猜模式那样另外从 canvasStore 里补捞一次——这里直接
+// 从 session.chains 里把所有 type==='draw' 的步骤拍平成落库用的 drawings 列表即可。
+function collectChainDrawings(session) {
+  const drawings = [];
+  for (const chain of session.chains.values()) {
+    for (const step of chain.steps) {
+      if (step.type !== 'draw') continue;
+      drawings.push({ userId: step.by, word: step.word, actions: step.actions });
+    }
+  }
+  return drawings;
+}
+
 function endGame(io, roomId) {
   const session = chainStore.getSession(roomId);
   const room = roomStore.getRoom(roomId);
   if (!session) return;
-
-  for (const ownerId of session.chains.keys()) {
-    canvasStore.destroySession(chainStore.chainCanvasKey(roomId, ownerId));
-  }
 
   const scores = chainStore.scoresObject(session);
   const ranking = Object.entries(scores)
     .map(([userId, score]) => ({ userId: Number(userId), score }))
     .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.userId - b.userId))
     .map((entry, i) => ({ ...entry, rank: i + 1 }));
+
+  recordsStore.recordGameSession({ roomId, mode: 'chain', scores, drawings: collectChainDrawings(session) });
+
+  for (const ownerId of session.chains.keys()) {
+    canvasStore.destroySession(chainStore.chainCanvasKey(roomId, ownerId));
+  }
 
   io.to(roomChannel(roomId)).emit('game:ended', { scores, ranking });
   chainStore.destroySession(roomId);

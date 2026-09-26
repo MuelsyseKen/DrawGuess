@@ -54,6 +54,15 @@ function migrate() {
       created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
   `);
+
+  // Phase 6（战绩/排行榜/个人作画记录）：game_records/drawings 从这个 Phase 开始真正有
+  // 业务代码读写，补上按 user_id 查询、排行榜聚合、按时间排序需要的索引（见 FULLREADME.md 第15节）。
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_game_records_user_id ON game_records(user_id);
+    CREATE INDEX IF NOT EXISTS idx_game_records_played_at ON game_records(played_at);
+    CREATE INDEX IF NOT EXISTS idx_drawings_user_id ON drawings(user_id);
+    CREATE INDEX IF NOT EXISTS idx_drawings_created_at ON drawings(created_at);
+  `);
 }
 
 migrate();

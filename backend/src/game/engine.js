@@ -11,6 +11,7 @@ const roomStore = require('../rooms/store');
 const canvasStore = require('../canvas/store');
 const wordbanks = require('../wordbanks');
 const gameStore = require('./store');
+const recordsStore = require('../records/store');
 
 const CHOOSE_WORD_TIMEOUT_MS = 20 * 1000;
 const TURN_RESULT_DISPLAY_MS = 4 * 1000; // 回合结束后，停留展示结果一段时间再开始下一回合
@@ -61,6 +62,16 @@ function advanceDrawer(session) {
   return { drawerId: order[nextIdx], wrapped: nextIdx === 0 };
 }
 
+// Phase 6：回合结束（正常结束或作画者被移出而作废）时，把这回合画板上的最终笔迹缓存一份，
+// 供 endGame 时落库成"个人作画记录"。要在 beginTurn 真正 clear 画板之前调用——这里是同步
+// 调用的，beginTurn 要等 TURN_RESULT_DISPLAY_MS 之后才会触发，时序上安全。
+// 没有任何笔迹（比如作画者一笔没画就被移出/超时）的回合不缓存，不落一条空白记录。
+function captureTurnDrawing(session, roomId) {
+  const actions = canvasStore.getVisibleActions(roomId);
+  if (actions.length === 0) return;
+  session.turnRecords.push({ userId: session.drawerId, word: session.word, actions });
+}
+
 function endGame(io, roomId) {
   const session = gameStore.getSession(roomId);
   const room = roomStore.getRoom(roomId);
@@ -71,6 +82,8 @@ function endGame(io, roomId) {
     .map(([userId, score]) => ({ userId: Number(userId), score }))
     .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.userId - b.userId))
     .map((entry, i) => ({ ...entry, rank: i + 1 }));
+
+  recordsStore.recordGameSession({ roomId, mode: 'guess', scores, drawings: session.turnRecords });
 
   io.to(roomChannel(roomId)).emit('game:ended', { scores, ranking });
   gameStore.destroySession(roomId);
@@ -184,6 +197,7 @@ function endTurn(io, roomId) {
 
   const drawerScore = 10 * session.correctGuessers.length;
   gameStore.addScore(session, session.drawerId, drawerScore);
+  captureTurnDrawing(session, roomId);
 
   io.to(roomChannel(roomId)).emit('game:turnEnded', {
     drawerId: session.drawerId,
@@ -202,6 +216,7 @@ function forfeitTurn(io, roomId) {
   const session = gameStore.getSession(roomId);
   if (!session) return;
   gameStore.clearPhaseTimer(session);
+  captureTurnDrawing(session, roomId);
 
   io.to(roomChannel(roomId)).emit('game:turnEnded', {
     drawerId: session.drawerId,
