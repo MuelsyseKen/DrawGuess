@@ -1,5 +1,6 @@
 import { reactive, readonly } from 'vue';
 import * as authApi from '../api/auth';
+import { reconnectSocket } from '../socket/client';
 
 const state = reactive({
   user: null, // { id, username, createdAt } | null
@@ -24,18 +25,21 @@ async function init() {
 async function doLogin(username, password) {
   const { user } = await authApi.login(username, password);
   state.user = user;
+  reconnectSocket();
   return user;
 }
 
 async function doRegister(username, password) {
   const { user } = await authApi.register(username, password);
   state.user = user;
+  reconnectSocket();
   return user;
 }
 
 async function doLogout() {
   await authApi.logout();
   state.user = null;
+  reconnectSocket();
 }
 
 export function useAuth() {

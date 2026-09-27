@@ -118,18 +118,28 @@ function beginChoosingPhase(io, roomId) {
   for (const chain of session.chains.values()) {
     if (wordSource === 'system') {
       chain.wordCandidates = wordbanks.pickWords(wordCategory, 3);
-      emitToUser(io, room, chain.ownerId, 'chain:wordChoices', { candidates: chain.wordCandidates });
     } else {
       chain.wordCandidates = null;
     }
   }
 
+  // 同 beginDrawPhase/beginGuessPhase：chain:turnStarted 先广播、chain:wordChoices 后私发，
+  // 避免前端 resetTurnLocalState() 清掉刚设置好的 myWordCandidates。这个阶段目前只会在
+  // 整局的第一回合触发一次，实测没有暴露过（第一次进对局页时前端是靠 game:getState 主动
+  // 拉状态、不受广播顺序影响），但和 beginDrawPhase/beginGuessPhase 保持同一套顺序更不容易
+  // 以后踩坑——万一以后有别的入口在对局已经在 choosingWord 阶段时才收到这条实时广播。
   io.to(roomChannel(roomId)).emit('chain:turnStarted', {
     turn: 1,
     totalTurns: session.totalTurns,
     phase: 'choosingWord',
     deadline: session.turnDeadline,
   });
+
+  if (wordSource === 'system') {
+    for (const chain of session.chains.values()) {
+      emitToUser(io, room, chain.ownerId, 'chain:wordChoices', { candidates: chain.wordCandidates });
+    }
+  }
 
   chainStore.schedulePhaseTimer(session, CHOOSE_WORD_TIMEOUT_MS, () => resolveChoosingPhase(io, roomId));
 }
@@ -206,14 +216,16 @@ function beginDrawPhase(io, roomId) {
 
     const word = currentDrawWordFor(chain);
     chain.currentDrawWord = word;
-    if (session.removedUserIds.has(drawerId)) continue; // 人已经不在房间里了，没法私发
-    emitToUser(io, room, drawerId, 'chain:wordToDraw', {
-      chainOwnerId: chain.ownerId,
-      word,
-      wordLength: word ? word.length : 0,
-    });
   }
 
+  // chain:turnStarted 必须先广播、chain:wordToDraw 后私发——顺序反过来会触发一个竞态：
+  // 前端 useChain.js 的 chain:turnStarted 监听器会无条件调用 resetTurnLocalState()，把
+  // myChainOwnerId/myRole/myWordToDraw 全部清成 null（"新的一回合，先清掉上一回合的分配
+  // 结果"）。如果 wordToDraw 先到、turnStarted 后到，刚设置好的"这回合我负责画哪条链"会被
+  // 这次重置立刻清空，UI 就会因为 myRole 是 null 而显示"这回合轮不到你画"——对所有玩家都
+  // 是这样，因为每个人都会收到自己那条链的 wordToDraw、然后被广播的 turnStarted 清空
+  // （2026-09-27 Deepseek 实机部署审查发现，bug L10003"接龙模式选完词后所有人卡在等待
+  // 界面"，根因就是这里，和竞猜模式 game:wordChoices/game:turnStarted 是同一类问题）。
   io.to(roomChannel(roomId)).emit('chain:turnStarted', {
     turn: session.turn,
     totalTurns: session.totalTurns,
@@ -221,6 +233,16 @@ function beginDrawPhase(io, roomId) {
     deadline: session.turnDeadline,
     assignments,
   });
+
+  for (const chain of session.chains.values()) {
+    const drawerId = chainStore.assignedPlayerId(session, chain);
+    if (session.removedUserIds.has(drawerId)) continue; // 人已经不在房间里了，没法私发
+    emitToUser(io, room, drawerId, 'chain:wordToDraw', {
+      chainOwnerId: chain.ownerId,
+      word: chain.currentDrawWord,
+      wordLength: chain.currentDrawWord ? chain.currentDrawWord.length : 0,
+    });
+  }
 
   chainStore.schedulePhaseTimer(session, drawMs, () => endDrawPhase(io, roomId));
 }
@@ -275,14 +297,10 @@ function beginGuessPhase(io, roomId) {
   for (const chain of session.chains.values()) {
     const guesserId = chainStore.assignedPlayerId(session, chain);
     assignments.push({ chainOwnerId: chain.ownerId, guesserId });
-    if (session.removedUserIds.has(guesserId)) continue;
-
-    // 只告诉猜词者"该看哪条链"，不重复发一份 actions——前端的 CanvasBoard 会用
-    // canvas:getState + 这个 chainOwnerId 去拉当前画板状态，和作画者提交后广播的
-    // canvas:actionAdded 走同一套数据源，避免两份画面数据不一致（见第14.5节）。
-    emitToUser(io, room, guesserId, 'chain:imageToGuess', { chainOwnerId: chain.ownerId });
   }
 
+  // 同 beginDrawPhase：chain:turnStarted 先广播、chain:imageToGuess 后私发，
+  // 避免前端 resetTurnLocalState() 把刚设置好的 myRole/myChainOwnerId 清掉（bug L10003）。
   io.to(roomChannel(roomId)).emit('chain:turnStarted', {
     turn: session.turn,
     totalTurns: session.totalTurns,
@@ -290,6 +308,16 @@ function beginGuessPhase(io, roomId) {
     deadline: session.turnDeadline,
     assignments,
   });
+
+  for (const chain of session.chains.values()) {
+    const guesserId = chainStore.assignedPlayerId(session, chain);
+    if (session.removedUserIds.has(guesserId)) continue;
+
+    // 只告诉猜词者"该看哪条链"，不重复发一份 actions——前端的 CanvasBoard 会用
+    // canvas:getState + 这个 chainOwnerId 去拉当前画板状态，和作画者提交后广播的
+    // canvas:actionAdded 走同一套数据源，避免两份画面数据不一致（见第14.5节）。
+    emitToUser(io, room, guesserId, 'chain:imageToGuess', { chainOwnerId: chain.ownerId });
+  }
 
   chainStore.schedulePhaseTimer(session, guessMs, () => endGuessPhase(io, roomId));
 }

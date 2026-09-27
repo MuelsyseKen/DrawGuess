@@ -115,16 +115,31 @@ function beginTurn(io, roomId) {
 
   // 每回合开始清空画板（新的作画者、新的画），复用 Phase 3 的 clear，归属给这回合的作画者。
   canvasStore.clear(roomId, drawerId);
-  io.to(roomChannel(roomId)).emit('canvas:cleared', {});
+  // payload 必须带 roomId（chainOwnerId 留空表示竞猜模式"一房间一块画板"）：
+  // frontend/src/canvas/useCanvas.js 的 canvas:cleared 监听器靠这两个字段判断
+  // "这次清空是不是我当前正在看的这块画板"，不带的话前端会直接把这次清空事件丢弃，
+  // 本地镜像里上一回合的笔迹残留在画面上——2026-09-27 Deepseek 实机部署审查发现的
+  // bug L10000（"画板轮到下一位后没清空"）根因就是这里少传了 payload，
+  // socket/canvas.js 和 chain/engine.js 里手动清空的两处从一开始就是对的，
+  // 只有这处"回合自动清空"漏传了。
+  io.to(roomChannel(roomId)).emit('canvas:cleared', { roomId, chainOwnerId: null });
 
   const { wordSource, wordCategory } = room.settings;
   if (wordSource === 'system') {
     session.wordCandidates = wordbanks.pickWords(wordCategory, 3);
-    emitToUser(io, room, drawerId, 'game:wordChoices', { candidates: session.wordCandidates });
   } else {
     session.wordCandidates = null;
   }
 
+  // game:turnStarted 必须先广播、game:wordChoices 后私发给作画者——顺序反过来会触发一个
+  // 竞态：前端 useGame.js 的 game:turnStarted 监听器会无条件把 state.wordCandidates 重置成
+  // null（"新的一回合，先清掉上一回合的候选词"），如果 wordChoices 先到、turnStarted 后到，
+  // 刚设置好的候选词会被这次重置立刻清空，UI 就会因为 wordCandidates 是 null 而误判成
+  // "自定义出题模式"，掉到自定义输入框那个分支——而那个分支本来就没有对应的候选词可提交，
+  // 所以点什么都提交不了。第一回合不会触发这个问题，是因为前端进入对局页时是靠
+  // `game:getState` 主动拉取一次当前快照（useGame.js 的 syncCurrent），不是靠这两条广播的
+  // 相对顺序；只有已经在对局页上、靠实时广播推进到下一回合时才会走到这条竞态（
+  // 2026-09-27 Deepseek 实机部署审查发现，bug L10001"第二位起无法选词"，根因就是这里）。
   io.to(roomChannel(roomId)).emit('game:turnStarted', {
     drawerId,
     round: session.round,
@@ -132,6 +147,10 @@ function beginTurn(io, roomId) {
     phase: 'choosingWord',
     deadline: session.turnDeadline,
   });
+
+  if (session.wordCandidates) {
+    emitToUser(io, room, drawerId, 'game:wordChoices', { candidates: session.wordCandidates });
+  }
 
   gameStore.schedulePhaseTimer(session, CHOOSE_WORD_TIMEOUT_MS, () => autoChooseWord(io, roomId));
 }

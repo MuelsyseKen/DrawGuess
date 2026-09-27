@@ -262,7 +262,15 @@
 |---|---|---|---|---|
 | 32 | 单端口部署新增的 `FRONTEND_DIST_PATH` 静态托管如果配置不当（比如误指向仓库根目录而不是 `frontend/dist`），`express.static` 可能把不该公开的文件（比如 `backend/.env`）暴露出去 | 人工自查 | [x] 已解决 | `app.js` 里只有当 `path.join(frontendDistPath, 'index.html')` 存在时才会挂载 `express.static`，且这个路径完全由部署者自己在 `.env`/脚本里指定；`scripts/build.sh`/`scripts/start.sh` 固定传入的是 `frontend/dist` 的绝对路径，不依赖用户手动填写，排除了"手滑指到根目录"的常见失误。真正意义上的越权保护仍然是"部署者不要把 `FRONTEND_DIST_PATH` 设置成敏感目录"，这条记录下来是为了以后如果开放给部署者自定义这个路径时留一个提醒。 |
 | 33 | `scripts/start.sh` 打印局域网 IP 供别人访问，等于主动提示了"这台机器在局域网里能被访问"，如果本机防火墙配置宽松，理论上局域网内任何人都能连上这个服务（不只是被邀请的玩家） | 人工自查 | [ ] 已知取舍，非疏漏 | 这就是"本地部署、局域网可访问"这个需求本身的题中之义（README 开头第一句话），不是这次新增的风险面；游戏本身通过房间邀请码控制"谁能加入具体的房间/对局"（见 Phase 2 审查 #17），局域网内能访问首页不等于能进任意房间。如果部署环境是不受信任的公共局域网，需要部署者自行用防火墙规则限制来源 IP，这超出了应用层能处理的范围。 |
-| 34 | 生产模式下 `helmet()` 默认的 `Content-Security-Policy` 会不会挡住单端口托管的前端构建产物，导致页面白屏 | 人工自查 + 实测验证 | [x] 已解决 | 实测启动生产服务器后 `curl` 检查响应头，确认 `script-src 'self'`（Vite 构建产物是外部 `<script type="module" src="/assets/...">`，不是内联脚本，符合 `'self'`）、`style-src` 允许 `'unsafe-inline'`（Vue 组件的 scoped style 标签需要），页面 HTML/JS/CSS 均正常 200 返回，没有观察到 CSP 相关的加载失败。 |
+| 34 | 生产模式下 `helmet()` 默认的 `Content-Security-Policy` 会不会挡住单端口托管的前端构建产物，导致页面白屏 | 人工自查 + 实测验证 | [x] 已解决 | 实测启动生产服务器后 `curl` 检查响应头，确认 `script-src 'self'`（Vite 构建产物是外部 `<script type="module" src="/assets/...">`，不是内联脚本，符合 `'self'`）、`style-src` 允许 `'unsafe-inline'`（Vue 组件的 scoped style 标签需要），页面 HTML/JS/CSS 均正常 200 返回，没有观察到 CSP 相关的加载失败。**（2026-09-27 更正：这条当时只测了 `localhost`，见 #35——同一条 CSP 默认配置换成局域网 IP 访问会白屏，是另一个指令导致的，不是 `script-src` 的问题。）** |
+
+### Phase 7 补丁审查（2026-09-27，Gemini/Deepseek 实机部署交叉审查发现）
+
+| # | 问题 | 发现方式 | 状态 | 备注 |
+|---|---|---|---|---|
+| 35 | `helmet()` 默认 CSP 带 `upgrade-insecure-requests`：浏览器对 loopback 地址（`localhost`/`127.0.0.1`）豁免这条升级规则，所以 #34 当时用 `localhost` 测没测出问题；换成局域网 IP（比如 `192.168.x.x`）访问时，浏览器把页面里所有资源请求强制升级成 https 再发，这个项目没有内置 HTTPS，升级后的请求直接失败，页面白屏（bug D10000 的根因之一，另一个根因是 `start.sh` 路径解析在 Windows 上出错，见下方部署脚本条目） | Deepseek 实机部署审查（Windows + 局域网 IP 实测复现） | [x] 已解决 | `app.js` 的 `helmet()` 配置显式去掉了这条指令（`'upgrade-insecure-requests': null`）。这个项目设计上就没有内置 HTTPS（README 明确写了公网/HTTPS 需要部署者自己加反向代理），去掉这条指令不会有安全倒退——如果以后真的放到 HTTPS 反代后面，页面本来就是通过 https 加载的，相对路径资源天然就是 https，不依赖这条 CSP 指令。 |
+| 36 | `scripts/start.sh` 之前只在注释/README 里"提醒"部署前要把 `NODE_ENV` 改成 `production`、`JWT_SECRET` 改成随机值，没有真正拦截——如果用户照抄 `.env.example` 什么都不改就跑这个脚本，会得到一台用公开默认密钥 `change-me-to-a-random-secret` 签发 JWT 的局域网服务，局域网内任何人都能伪造任意用户身份登录 | Deepseek 长文审查报告建议 | [x] 已解决 | `start.sh` 启动前新增强制检查：读 `backend/.env` 的 `NODE_ENV`/`JWT_SECRET`，任一项不满足直接 `exit 1` 并打印具体缺什么，不再只是"提醒"。 |
+| 37 | 同一浏览器 tab 换账号（登出再登录）后，Socket.io 连接不会重新走一次握手——`socket.user` 只在建立连接那一刻从 Cookie 里解析一次，之后不管 Cookie 后来怎么变都不会重新算，导致换账号后的房间/对局操作会继续以旧账号身份在服务端执行；若旧账号登出时还留在房间里，新账号能直接以旧账号身份操作旧账号的房间/房主权限 | Deepseek 长文审查报告（中危，报告里提到 Phase 1~5 就发现过、当时没转达给开发方修复） | [x] 已解决，但测试覆盖较弱 | 前端 `stores/auth.js` 的 `doLogin`/`doRegister`/`doLogout` 现在都会调用 `socket/client.js` 新增的 `reconnectSocket()`，对同一个 Socket 对象做 `disconnect()`+`connect()`，重新走一次握手（这时浏览器的 Cookie 已经是最新的）。没有写自动化端到端测试验证这条（要模拟"同一个连接先后以两个身份握手"，比前面几个竞态 bug 的测试场景复杂），只做了代码走读确认逻辑自洽，建议实机测试时手动验证一遍：登出再换账号登录，进房间操作看是不是真的以新账号身份生效。 |
 
 ---
 

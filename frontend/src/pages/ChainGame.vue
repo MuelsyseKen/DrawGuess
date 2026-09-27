@@ -41,6 +41,16 @@ const remainingSeconds = computed(() => {
   return Math.max(0, Math.ceil((chain.state.deadline - nowMs.value) / 1000));
 });
 
+// 评审投票阶段的倒计时必须读 currentVote.deadline，不能复用上面的 remainingSeconds——
+// 进入 reviewing 阶段后 chain.state.deadline 会被后端置 null（engine.js beginReview），
+// 真正的投票截止时间在每条链各自的 currentVote.deadline 里。投票逻辑本身没问题，只是
+// 倒计时数字一直显示 0（2026-09-27 Deepseek 实机部署审查发现的 bug，投票本身能正常投，
+// 只是 UI 上的秒数不对）。
+const voteRemainingSeconds = computed(() => {
+  if (!chain.state.currentVote || !chain.state.currentVote.deadline) return 0;
+  return Math.max(0, Math.ceil((chain.state.currentVote.deadline - nowMs.value) / 1000));
+});
+
 // 环数展示：每环 = 1 次画 + 1 次猜（第14.2节），turn 是内部的"半环"计数
 const totalRings = computed(() => Math.ceil(chain.state.totalTurns / 2));
 const currentRing = computed(() => Math.ceil(chain.state.turn / 2) || 1);
@@ -315,7 +325,7 @@ onBeforeUnmount(() => {
           </p>
 
           <template v-else-if="chain.state.currentVote">
-            <p class="hint">链条没有首尾一致，其他玩家投票是否认可这条链算数（{{ remainingSeconds }}s）</p>
+            <p class="hint">链条没有首尾一致，其他玩家投票是否认可这条链算数（{{ voteRemainingSeconds }}s）</p>
             <p class="hint">
               {{ chain.state.currentVote.voteCount }} / {{ chain.state.currentVote.eligibleCount }} 人已投票
             </p>

@@ -86,13 +86,30 @@ cp backend/.env.example backend/.env
 
 ## 当前进度
 
-**Phase 7（`phase-7-polish-deploy`）开发已完成，PR 待提交/待用户确认合并。Phase 1~6 的 PR 均已合并到 main。**
+**Phase 7（`phase-7-polish-deploy`）开发 + 一轮 Gemini/Deepseek 实机交叉审查 bug 修复均已完成，PR #7 待提交/待用户确认合并。Phase 1~6 的 PR 均已合并到 main。**
+
+### Phase 7 主体（响应式/占位UI/部署脚本）
 
 - **响应式适配打磨**：排查发现除 `ChainGame.vue`（接龙模式游戏内页）外其余页面从早期 Phase 起就陆续加过 `@media` 断点，唯独这一个是漏网之鱼，本 Phase 补了 768px 断点（画板列取消固定最大宽度、计分板栏移动端铺满、选词/猜词表单竖排、候选词按钮组允许换行、投票按钮允许换行）。其余页面这次只做了走读确认，没有大改。
 - **特殊效果占位 UI 补全**：`FULLREADME.md` 第4节写的是"像素艺术（+颗粒度）"，但颗粒度这个子参数此前完全没有对应 UI（只有 无/隐形/重力/像素艺术 四个禁用 pill）。本 Phase 在 `CreateRoomSettings.vue`（建房设置页）和 `RoomLobby.vue`（房间内设置编辑）两处都补上了一个禁用状态的颗粒度滑杆占位（新增常量 `settingsSchema.js` 的 `PIXEL_ART_GRANULARITY_RANGE`），纯前端展示用，不下发给后端、不影响 `validateSettings.js` 的校验逻辑。
 - **本地部署脚本与文档收尾**：新增 `scripts/build.sh`（装依赖 + 构建前端）、`scripts/start.sh`（构建 + 生产模式启动后端，打印局域网访问地址）。后端 `app.js` 新增可选的 `FRONTEND_DIST_PATH` 静态托管（配合 vue-router history 模式的 SPA 回退），不设置这个变量时对现有"前后端分离开发"模式零影响。为了让单端口部署在任意局域网 IP 下都不用改前端配置，`socket/client.js` 调整为：`VITE_SOCKET_URL` 显式设为空字符串时视为"跟前端同源"，交给 `socket.io-client` 自动连当前页面 origin（`axios` 那边本来就是空串以外的相对路径 `/api` 直接能用，不用改代码）；`scripts/build.sh` 构建时会自动把这两个变量设成单端口部署要的值，不需要手动改 `frontend/.env`。
-- 验证方式：**真实跑通了一遍完整部署流程**——`scripts/build.sh` 实际装依赖、`vite build` 编译通过；用临时生成的随机 `JWT_SECRET` + `NODE_ENV=production` 跑 `scripts/start.sh --skip-build` 把服务真起起来，`curl` 验证了 `/api/health`、`index.html`、静态资源（JS/CSS chunk）、vue-router history 模式下非根路径（`/records`）的 SPA 回退、以及 `/api` 下未知路径仍然正确返回 404（没有被 SPA 回退误吞）。**没有覆盖到的**：真实浏览器打开页面走一遍登录/建房/进游戏的完整交互（只验证了服务器返回的 HTTP 层面是对的，没有跑浏览器里的 JS）；真实局域网多设备联调（沙箱环境只有一张网卡，没法模拟"另一台设备用局域网 IP 访问"）；移动端浏览器上的实际触屏体验（响应式改动只在代码层面按现有断点惯例补齐，没有用真机验证）。这几条建议实机部署时重点看一下。
-- 下一步：本 Phase 是 FULLREADME.md 第9节列出的最后一个 Phase。用户计划这个 PR 合并后开始实机部署，并让 Gemini / Deepseek 交叉提交 bug 反馈——如果后续还有 Phase，按同样的"读文档 → 拉分支 → 开发 → 自检 → PR"流程走，具体范围等用户在 `FULLREADME.md` 第9节或新对话里补充。
+
+### Phase 7 补丁（Gemini/Deepseek 实机交叉审查后修复）
+
+用户按计划实机部署后让 Gemini/Deepseek 交叉审查，两份报告（一份 xlsx 列了 6 条实测复现的 bug，一份长文补充审查）汇总后处理，全部**真实跑通了完整流程/写了 socket.io-client 端到端测试脚本验证**，不是只靠走读代码：
+
+- **部署三连坑**（Windows 上 3000 端口空白、构建后无法注册登录）：`start.sh` 的路径解析在 Windows 上被 Git Bash 的 POSIX 路径转换坑了、`helmet()` 默认 CSP 在局域网 IP 访问下会把资源请求强制升级成不存在的 https、`build.sh` 里的 `/api` 被 MSYS2 误转成 Windows 路径——三处都已修复。这几个坑沙箱里的 Linux 环境完全测不出来，是这次交叉审查最有价值的发现。
+- **`start.sh` 新增部署前强制校验**：`NODE_ENV`/`JWT_SECRET` 不满足直接拒绝启动，不再只是"提醒"。
+- **两处竞态 bug（这批里最关键的发现）**：竞猜模式"第二回合起选词框失效"、接龙模式"选完词后所有人卡在等待界面"，根因是同一类问题——后端在广播"回合开始"事件之前，先私发了"你的候选词/任务分配"，而前端收到"回合开始"广播会无条件重置本地状态，把刚私发的数据清空了。第一回合/初始阶段测不出来（前端靠初始快照拿状态，不受这两个事件相对顺序影响），只有已经在页面上靠实时广播推进才会暴露——这也是之前几个 Phase 自己的端到端验证没测出来的原因。已在 `game/engine.js`、`chain/engine.js` 四处修正广播顺序，写了真实的 socket.io-client 测试脚本（4人接龙对局全流程）验证。
+- **画板轮到下一位不清空**：`canvas:cleared` 广播漏传 `roomId`，前端因此丢弃了这个事件。
+- **聊天不自动滚动、接龙投票倒计时恒为 0**：两处前端小 bug，都是读错了/漏了状态字段。
+- **socket 身份串号（中危）**：同一浏览器换账号不会重新走 socket 握手，导致新账号可能沿用旧账号的服务端身份。已修复（登录/注册/登出时重连 socket），但这条**没有写自动化测试**，只做了代码走读，建议实机测试时手动验证。
+- **本轮没有处理、需要用户先确认语义再动手的**：接龙模式没有聊天功能（规格写了但没做，还是规格要改？）、接龙 `rounds` 字段校验了但从不生效（`chainRounds` 才是真正的字段）、`showDrawingProcess` 开关不影响结算展示。以及审查报告里列的一批低危加固项（未鉴权的公开房间列表、多标签页同账号、`strokeProgress` 校验过宽等）——优先级较低，本地部署场景风险可接受，先记录不处理。
+- 详细的问题分析和测试记录见 `HISTORY.md` 最新一条。
+
+### 下一步
+
+`rounds`/`showDrawingProcess`/接龙聊天 这三处规格歧义需要用户确认意图后再排期修复；socket 身份串号建议实机验证一遍。之后如果继续有 Phase，按同样的"读文档 → 拉分支 → 开发 → 自检/真实测试 → PR"流程走。
 
 ## 交接须知
 
