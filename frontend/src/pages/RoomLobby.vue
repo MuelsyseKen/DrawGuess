@@ -14,6 +14,7 @@ import {
   ROUNDS_PRESETS,
   CHAIN_ROUNDS_RANGE,
   SPECIAL_EFFECTS,
+  PIXEL_ART_GRANULARITY_RANGE,
 } from '../rooms/settingsSchema';
 
 const route = useRoute();
@@ -226,6 +227,17 @@ onMounted(async () => {
               >
                 {{ opt.label }}
               </button>
+            </div>
+            <div class="pixel-granularity" title="像素艺术效果的颗粒度，本期仅作 UI 占位，暂不可用">
+              <span class="pixel-granularity-label">颗粒度（像素艺术专属，暂未开放）</span>
+              <input
+                type="range"
+                class="pixel-granularity-slider"
+                :min="PIXEL_ART_GRANULARITY_RANGE.min"
+                :max="PIXEL_ART_GRANULARITY_RANGE.max"
+                :value="PIXEL_ART_GRANULARITY_RANGE.default"
+                disabled
+              />
             </div>
           </div>
           <div class="field">
@@ -552,6 +564,26 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
+.pixel-granularity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  opacity: 0.5;
+}
+
+.pixel-granularity-label {
+  font-size: 12px;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.pixel-granularity-slider {
+  flex: 1;
+  min-width: 0;
+  cursor: not-allowed;
+}
+
 .edit-actions {
   display: flex;
   justify-content: flex-end;
@@ -608,6 +640,9 @@ onMounted(async () => {
   .invite-card {
     flex-direction: column;
     align-items: flex-start;
+  }
+  .pixel-granularity {
+    flex-wrap: wrap;
   }
 }
 </style>

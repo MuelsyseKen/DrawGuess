@@ -24,6 +24,11 @@ export const SPECIAL_EFFECTS = [
   { value: 'pixelArt', label: '像素艺术', disabled: true },
 ];
 
+// 像素艺术效果的"颗粒度"子参数（见 FULLREADME.md 第4节"像素艺术（+颗粒度）"）。
+// 一期特殊效果本身都是禁用的 UI 占位，这个滑杆同理只占位、不接入任何逻辑，
+// 也不下发给后端（validateSettings 目前完全不认识这个字段）。
+export const PIXEL_ART_GRANULARITY_RANGE = { min: 4, max: 32, default: 12 };
+
 export function defaultSettings(mode) {
   const common = {
     maxPlayers: mode === 'chain' ? 8 : 8,

@@ -398,6 +398,7 @@ onBeforeUnmount(() => {
 
 .candidates {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 12px;
   margin-top: 10px;
@@ -602,5 +603,36 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 14px;
+  }
+  .game-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .canvas-col {
+    max-width: none;
+  }
+  .side-col.standalone {
+    width: 100%;
+  }
+  .custom-word-form,
+  .guess-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .custom-word-form input,
+  .guess-form input {
+    width: 100%;
+  }
+  .review-chain {
+    padding: 12px;
+  }
+  .vote-actions {
+    flex-wrap: wrap;
+  }
 }
 </style>
