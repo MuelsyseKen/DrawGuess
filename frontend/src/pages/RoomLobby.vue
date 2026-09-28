@@ -14,6 +14,7 @@ import {
   ROUNDS_PRESETS,
   CHAIN_ROUNDS_RANGE,
   SPECIAL_EFFECTS,
+  PIXEL_ART_GRANULARITY_RANGE,
 } from '../rooms/settingsSchema';
 
 const route = useRoute();
@@ -198,12 +199,13 @@ onMounted(async () => {
           <dl class="settings-view">
             <div><dt>绘画时间</dt><dd>{{ room.state.room.settings.drawSeconds }} 秒</dd></div>
             <div v-if="room.state.room.mode === 'chain'"><dt>猜测时间</dt><dd>{{ room.state.room.settings.guessSeconds }} 秒</dd></div>
-            <div><dt>回合</dt><dd>{{ room.state.room.settings.rounds }}</dd></div>
+            <div v-if="room.state.room.mode === 'guess'"><dt>回合</dt><dd>{{ room.state.room.settings.rounds }}</dd></div>
             <div v-if="room.state.room.mode === 'chain'"><dt>接龙次数</dt><dd>{{ room.state.room.settings.chainRounds }} 环</dd></div>
             <div><dt>笔刷</dt><dd>{{ room.state.room.settings.brushMode === 'fixed' ? '单一笔刷' : '可调节' }}</dd></div>
             <div><dt>颜色</dt><dd>{{ room.state.room.settings.colorMode === 'rgb' ? 'RGB' : '单色' }}</dd></div>
             <div><dt>词库</dt><dd>{{ room.state.room.settings.wordSource === 'system' ? `系统出题（${room.state.room.settings.wordCategory}）` : '玩家自己出题' }}</dd></div>
             <div v-if="room.state.room.mode === 'chain'"><dt>匿名投票</dt><dd>{{ room.state.room.settings.anonymousVoting ? '开启' : '关闭' }}</dd></div>
+            <div v-if="room.state.room.mode === 'chain'"><dt>结算展示画作</dt><dd>{{ room.state.room.settings.showDrawingProcess ? '开启' : '关闭' }}</dd></div>
           </dl>
         </template>
 
@@ -227,6 +229,17 @@ onMounted(async () => {
                 {{ opt.label }}
               </button>
             </div>
+            <div class="pixel-granularity" title="像素艺术效果的颗粒度，本期仅作 UI 占位，暂不可用">
+              <span class="pixel-granularity-label">颗粒度（像素艺术专属，暂未开放）</span>
+              <input
+                type="range"
+                class="pixel-granularity-slider"
+                :min="PIXEL_ART_GRANULARITY_RANGE.min"
+                :max="PIXEL_ART_GRANULARITY_RANGE.max"
+                :value="PIXEL_ART_GRANULARITY_RANGE.default"
+                disabled
+              />
+            </div>
           </div>
           <div class="field">
             <label>绘画时间</label>
@@ -242,7 +255,7 @@ onMounted(async () => {
             </div>
             <input type="number" v-model.number="editForm.guessSeconds" min="10" max="300" />
           </div>
-          <div class="field">
+          <div class="field" v-if="room.state.room.mode === 'guess'">
             <label>回合</label>
             <div class="pill-group">
               <button v-for="r in ROUNDS_PRESETS" :key="r" type="button" class="pill" :class="{ active: editForm.rounds === r }" @click="editForm.rounds = r">{{ r }}</button>
@@ -257,7 +270,7 @@ onMounted(async () => {
             <label><input type="checkbox" v-model="editForm.anonymousVoting" /> 匿名投票</label>
           </div>
           <div class="field" v-if="room.state.room.mode === 'chain'">
-            <label><input type="checkbox" v-model="editForm.showDrawingProcess" /> 加框画作展示环节</label>
+            <label><input type="checkbox" v-model="editForm.showDrawingProcess" /> 结算时展示每一步的画作（关闭则只显示猜词文字，结算更快）</label>
           </div>
           <div class="field">
             <label>词库</label>
@@ -552,6 +565,26 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
+.pixel-granularity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  opacity: 0.5;
+}
+
+.pixel-granularity-label {
+  font-size: 12px;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.pixel-granularity-slider {
+  flex: 1;
+  min-width: 0;
+  cursor: not-allowed;
+}
+
 .edit-actions {
   display: flex;
   justify-content: flex-end;
@@ -608,6 +641,9 @@ onMounted(async () => {
   .invite-card {
     flex-direction: column;
     align-items: flex-start;
+  }
+  .pixel-granularity {
+    flex-wrap: wrap;
   }
 }
 </style>

@@ -14,6 +14,7 @@ import {
   ROUNDS_RANGE,
   CHAIN_ROUNDS_RANGE,
   SPECIAL_EFFECTS,
+  PIXEL_ART_GRANULARITY_RANGE,
   defaultSettings,
 } from '../rooms/settingsSchema';
 
@@ -106,6 +107,17 @@ async function handleSubmit() {
                 {{ opt.label }}
               </button>
             </div>
+            <div class="pixel-granularity" :title="'像素艺术效果的颗粒度，本期仅作 UI 占位，暂不可用'">
+              <span class="pixel-granularity-label">颗粒度（像素艺术专属，暂未开放）</span>
+              <input
+                type="range"
+                class="pixel-granularity-slider"
+                :min="PIXEL_ART_GRANULARITY_RANGE.min"
+                :max="PIXEL_ART_GRANULARITY_RANGE.max"
+                :value="PIXEL_ART_GRANULARITY_RANGE.default"
+                disabled
+              />
+            </div>
           </div>
 
           <div class="field">
@@ -129,7 +141,7 @@ async function handleSubmit() {
               <label><input type="checkbox" v-model="form.anonymousVoting" /> 匿名投票（只隐藏投票人身份，结果依然公开）</label>
             </div>
             <div class="field">
-              <label><input type="checkbox" v-model="form.showDrawingProcess" /> 加框画作展示环节</label>
+              <label><input type="checkbox" v-model="form.showDrawingProcess" /> 结算时展示每一步的画作（关闭则只显示猜词文字，结算更快）</label>
             </div>
           </template>
         </section>
@@ -201,7 +213,7 @@ async function handleSubmit() {
             />
           </div>
 
-          <div class="field">
+          <div class="field" v-if="mode === 'guess'">
             <label>回合</label>
             <div class="pill-group">
               <button
@@ -373,6 +385,26 @@ async function handleSubmit() {
   cursor: not-allowed;
 }
 
+.pixel-granularity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  opacity: 0.5;
+}
+
+.pixel-granularity-label {
+  font-size: 12px;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.pixel-granularity-slider {
+  flex: 1;
+  min-width: 0;
+  cursor: not-allowed;
+}
+
 .error-msg {
   color: #e0433d;
   font-size: 13px;
@@ -405,6 +437,9 @@ async function handleSubmit() {
   }
   .submit-btn {
     max-width: none;
+  }
+  .pixel-granularity {
+    flex-wrap: wrap;
   }
 }
 </style>

@@ -54,10 +54,6 @@ function validateCommon(mode, settings) {
     throw fail('drawSeconds 必须是 30/60/90 或 10~900 之间的整数');
   }
 
-  if (!isInt(settings.rounds) || settings.rounds < 1 || settings.rounds > 10) {
-    throw fail('rounds 必须是 1~10 之间的整数');
-  }
-
   if (!WORD_SOURCES.includes(settings.wordSource)) {
     throw fail('wordSource 取值不合法');
   }
@@ -74,10 +70,22 @@ function validateCommon(mode, settings) {
     brushMode: settings.brushMode,
     colorMode: settings.colorMode,
     drawSeconds: settings.drawSeconds,
-    rounds: settings.rounds,
     wordSource: settings.wordSource,
     wordCategory: settings.wordSource === 'system' ? settings.wordCategory : null,
   };
+}
+
+// 竞猜模式独有：rounds（打几轮，每轮每人轮流画一次，见 game/engine.js 的 beginTurn）。
+// 这个字段之前被错误地放进了 validateCommon、当成"两种模式通用字段"校验——但
+// chain/engine.js 从来不读 room.settings.rounds，接龙模式实际用的是下面
+// validateChainExtra 里的 chainRounds（"环数"）。两个字段同时出现在接龙模式的建房
+// 页面上，"回合"这个选项对接龙模式完全是摆设，用户选了也没有任何效果——这是真实的
+// UX bug，不是设计如此（2026-09-27 Deepseek 审查报告提出的疑问，确认后修复）。
+function validateGuessExtra(settings) {
+  if (!isInt(settings.rounds) || settings.rounds < 1 || settings.rounds > 10) {
+    throw fail('rounds 必须是 1~10 之间的整数');
+  }
+  return { rounds: settings.rounds };
 }
 
 function validateChainExtra(settings) {
@@ -117,7 +125,7 @@ function validateSettings(mode, rawSettings) {
   if (mode === 'chain') {
     return { ...common, ...validateChainExtra(rawSettings) };
   }
-  return common;
+  return { ...common, ...validateGuessExtra(rawSettings) };
 }
 
 function validateMode(mode) {

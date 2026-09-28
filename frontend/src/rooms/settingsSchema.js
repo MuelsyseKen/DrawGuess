@@ -24,6 +24,11 @@ export const SPECIAL_EFFECTS = [
   { value: 'pixelArt', label: '像素艺术', disabled: true },
 ];
 
+// 像素艺术效果的"颗粒度"子参数（见 FULLREADME.md 第4节"像素艺术（+颗粒度）"）。
+// 一期特殊效果本身都是禁用的 UI 占位，这个滑杆同理只占位、不接入任何逻辑，
+// 也不下发给后端（validateSettings 目前完全不认识这个字段）。
+export const PIXEL_ART_GRANULARITY_RANGE = { min: 4, max: 32, default: 12 };
+
 export function defaultSettings(mode) {
   const common = {
     maxPlayers: mode === 'chain' ? 8 : 8,
@@ -31,7 +36,8 @@ export function defaultSettings(mode) {
     brushMode: 'adjustable',
     colorMode: 'rgb',
     drawSeconds: 60,
-    rounds: 3,
+    rounds: 3, // 只有竞猜模式会真正用到（见 backend/src/rooms/validateSettings.js 的 validateGuessExtra）；
+    // 接龙模式提交时这个字段会被后端直接丢弃，留在这里只是图方便不用按 mode 拆两份 common，无副作用。
     wordSource: 'system',
     wordCategory: '',
   };

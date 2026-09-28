@@ -1,7 +1,7 @@
 <script setup>
 // 竞猜模式游戏内页面（见 FULLREADME.md 第13.8节）：复用 CanvasBoard 组件，
 // 外层加"当前是否轮到我画"的权限判断（第13.4节），布局按第5.1节竞猜模式界面描述。
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuth } from '../stores/auth';
 import { useRoom } from '../stores/room';
@@ -22,8 +22,23 @@ const chatError = ref('');
 const chooseError = ref('');
 const customWord = ref('');
 const nowMs = ref(Date.now());
+const chatLogEl = ref(null);
 
 let tickTimer = null;
+
+// 聊天/猜词内容不自动滚动到底部的话，新消息一多就得手动往下拉才能看到最新的——
+// 2026-09-27 Deepseek 实机部署审查发现的 bug L10002。这里没做"用户往上翻看历史时
+// 不要打断"这类细节，聊天面板本身空间小、消息节奏快，简单地每次新消息都滚到底更符合
+// 这个场景的使用习惯。
+watch(
+  () => game.state.chatLog.length,
+  async () => {
+    await nextTick();
+    if (chatLogEl.value) {
+      chatLogEl.value.scrollTop = chatLogEl.value.scrollHeight;
+    }
+  }
+);
 
 const myUserId = computed(() => auth.state.user?.id ?? null);
 const isDrawer = computed(() => game.state.drawerId !== null && game.state.drawerId === myUserId.value);
@@ -223,7 +238,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section class="chat-panel">
-            <div class="chat-log">
+            <div class="chat-log" ref="chatLogEl">
               <p v-for="entry in game.state.chatLog" :key="entry.id" class="chat-line" :class="entry.type">
                 <strong>{{ usernameOf(entry.userId) }}：</strong>{{ entry.text }}
               </p>

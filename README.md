@@ -65,15 +65,52 @@ npm run dev         # http://localhost:5173
 
 后端提供 `/api/auth/register`、`/api/auth/login`、`/api/auth/logout`、`/api/auth/me` 四个账号相关接口，前端大厅页（`/`）已接入登录/注册弹窗。
 
+## 本地部署（单端口，局域网/公网访问）
+
+日常开发用上面两个 `npm run dev` 就行；真要把游戏跑起来给别人连（比如同一局域网内几个人用手机/电脑打开网页玩），用这个：
+
+```bash
+# 第一次部署：先准备后端配置
+cp backend/.env.example backend/.env
+# 至少改两处：NODE_ENV=production；JWT_SECRET 换成一个随机字符串
+#（这两项不满足后端会直接拒绝启动，是有意为之的安全检查，见 FULLREADME.md 第10节 #1）
+
+./scripts/start.sh
+```
+
+`start.sh` 会自动装依赖、构建前端（产物 `frontend/dist`）、然后用生产模式启动后端，后端顺带把前端静态文件也托管了——局域网/公网访问只需要暴露后端这一个端口（默认 3000），不用额外起 Nginx。脚本结束前会打印出局域网 IP，同一局域网内其他设备用 `http://<那个IP>:3000` 访问即可（**不要用 `localhost`**，那在别的设备上指向的是它自己）。
+
+只改了后端代码、前端没变的话，可以用 `./scripts/start.sh --skip-build` 跳过重新构建前端，启动更快。
+
+这套单端口部署只解决"局域网内跑起来"；如果要暴露到公网，路由器端口转发/防火墙/要不要上 HTTPS 反代等需要自行评估，脚本不处理这些。
+
 ## 当前进度
 
-**Phase 6（`phase-6-records`）开发已完成，PR 待提交/待用户确认合并。Phase 1~5 的 PR 均已合并到 main（Phase 5 接龙模式完整玩法已合并，之前"PR 待确认合并"的状态已过期，`main` 上早就有了）。**
+**Phase 7（`phase-7-polish-deploy`）开发 + 一轮 Gemini/Deepseek 实机交叉审查 bug 修复均已完成，PR #7 待提交/待用户确认合并。Phase 1~6 的 PR 均已合并到 main。**
 
-- **战绩历史 / 排行榜 / 个人作画记录**：`game_records`/`drawings` 两张表从 Phase 1 建表起就在，本 Phase 才第一次有业务代码真正读写。落库时机是每一局 `endGame` 时（正常打完或提前结算都算），一次性把这一局所有参与者的战绩 + 产生的画作用一个事务写进去；竞猜模式的画作是新增 `session.turnRecords` 在每回合结束时从画板快照捕获，接龙模式直接复用 Phase 5 `chain.steps` 里本来就存好的 `actions`，没有另外捕获一套。协议细节见 `FULLREADME.md` 第15节。
-- 后端新增：`backend/src/records/store.js`（写入）、`backend/src/routes/records.js`（`GET /api/records/me`、`/leaderboard`、`/drawings`、`/drawings/:id`，全部要求登录）；`db/init.js` 补了 4 个索引；`game/engine.js`/`game/store.js`/`chain/engine.js` 三个 Phase 4/5 遗留下来的文件做了最小侵入的钩子接入（结算时调用落库，回合结束时捕获画作快照），没有改动这三个文件里任何原有的游戏逻辑分支。
-- 前端新增三个页面：`RecordsHistory.vue`（`/records`）、`Leaderboard.vue`（`/leaderboard`）、`MyDrawings.vue`（`/drawings`，缩略卡片列表 + 点开按需拉取详情用 `ActionsPreview.vue`（Phase 5 结算页那个组件）弹窗回放），`Home.vue` 底部加了三个入口。
-- 验证方式：①store 层单元自检（落库/排行榜聚合/空笔迹跳过等边界）；②REST 层自检（未登录 401、mode 非法 400、越权访问详情 404、分页夹值）；③**端到端回归**——起真实 http+socket.io 服务器跑一整局竞猜模式（开局→选词→作画→猜词→结算），确认 Phase 4 原有链路没有被这次改动破坏，并且结算后 `game_records`/`drawings` 落库结果和 `game:ended` 广播的分数完全一致。三份脚本都不在仓库里。**没有覆盖到的**：接龙模式的端到端落库没有另写单独的 socket 联调（`collectChainDrawings` 读的是 Phase 5 已经验证过的 `session.chains` 数据结构，走读代码确认字段对得上，判断复用 Phase 5 已有的正确性保证已经足够，没有必要为同一件事再跑一遍完整的接龙联调）；真实浏览器多开手动点 UI 三个新页面（只做了 `vite build` 编译检查）。这两条请重点体验一下。
-- 下一步：**Phase 7（响应式适配打磨 / 特殊效果占位 UI 补全 / 本地部署脚本与文档收尾）**，开工前先读一遍 `FULLREADME.md` 第9节确认范围。
+### Phase 7 主体（响应式/占位UI/部署脚本）
+
+- **响应式适配打磨**：排查发现除 `ChainGame.vue`（接龙模式游戏内页）外其余页面从早期 Phase 起就陆续加过 `@media` 断点，唯独这一个是漏网之鱼，本 Phase 补了 768px 断点（画板列取消固定最大宽度、计分板栏移动端铺满、选词/猜词表单竖排、候选词按钮组允许换行、投票按钮允许换行）。其余页面这次只做了走读确认，没有大改。
+- **特殊效果占位 UI 补全**：`FULLREADME.md` 第4节写的是"像素艺术（+颗粒度）"，但颗粒度这个子参数此前完全没有对应 UI（只有 无/隐形/重力/像素艺术 四个禁用 pill）。本 Phase 在 `CreateRoomSettings.vue`（建房设置页）和 `RoomLobby.vue`（房间内设置编辑）两处都补上了一个禁用状态的颗粒度滑杆占位（新增常量 `settingsSchema.js` 的 `PIXEL_ART_GRANULARITY_RANGE`），纯前端展示用，不下发给后端、不影响 `validateSettings.js` 的校验逻辑。
+- **本地部署脚本与文档收尾**：新增 `scripts/build.sh`（装依赖 + 构建前端）、`scripts/start.sh`（构建 + 生产模式启动后端，打印局域网访问地址）。后端 `app.js` 新增可选的 `FRONTEND_DIST_PATH` 静态托管（配合 vue-router history 模式的 SPA 回退），不设置这个变量时对现有"前后端分离开发"模式零影响。为了让单端口部署在任意局域网 IP 下都不用改前端配置，`socket/client.js` 调整为：`VITE_SOCKET_URL` 显式设为空字符串时视为"跟前端同源"，交给 `socket.io-client` 自动连当前页面 origin（`axios` 那边本来就是空串以外的相对路径 `/api` 直接能用，不用改代码）；`scripts/build.sh` 构建时会自动把这两个变量设成单端口部署要的值，不需要手动改 `frontend/.env`。
+
+### Phase 7 补丁（Gemini/Deepseek 实机交叉审查后修复）
+
+用户按计划实机部署后让 Gemini/Deepseek 交叉审查，两份报告（一份 xlsx 列了 6 条实测复现的 bug，一份长文补充审查）汇总后处理，全部**真实跑通了完整流程/写了 socket.io-client 端到端测试脚本验证**，不是只靠走读代码：
+
+- **部署三连坑**（Windows 上 3000 端口空白、构建后无法注册登录）：`start.sh` 的路径解析在 Windows 上被 Git Bash 的 POSIX 路径转换坑了、`helmet()` 默认 CSP 在局域网 IP 访问下会把资源请求强制升级成不存在的 https、`build.sh` 里的 `/api` 被 MSYS2 误转成 Windows 路径——三处都已修复。这几个坑沙箱里的 Linux 环境完全测不出来，是这次交叉审查最有价值的发现。
+- **`start.sh` 新增部署前强制校验**：`NODE_ENV`/`JWT_SECRET` 不满足直接拒绝启动，不再只是"提醒"。
+- **两处竞态 bug（这批里最关键的发现）**：竞猜模式"第二回合起选词框失效"、接龙模式"选完词后所有人卡在等待界面"，根因是同一类问题——后端在广播"回合开始"事件之前，先私发了"你的候选词/任务分配"，而前端收到"回合开始"广播会无条件重置本地状态，把刚私发的数据清空了。第一回合/初始阶段测不出来（前端靠初始快照拿状态，不受这两个事件相对顺序影响），只有已经在页面上靠实时广播推进才会暴露——这也是之前几个 Phase 自己的端到端验证没测出来的原因。已在 `game/engine.js`、`chain/engine.js` 四处修正广播顺序，写了真实的 socket.io-client 测试脚本（4人接龙对局全流程）验证。
+- **画板轮到下一位不清空**：`canvas:cleared` 广播漏传 `roomId`，前端因此丢弃了这个事件。
+- **聊天不自动滚动、接龙投票倒计时恒为 0**：两处前端小 bug，都是读错了/漏了状态字段。
+- **socket 身份串号（中危）**：同一浏览器换账号不会重新走 socket 握手，导致新账号可能沿用旧账号的服务端身份。已修复（登录/注册/登出时重连 socket），但这条**没有写自动化测试**，只做了代码走读，建议实机测试时手动验证。
+- **用户确认三处规格歧义后已处理**：接龙模式补上了聊天（`chain:chat`）；`rounds` 确认是竞猜模式专属字段（接龙用 `chainRounds`），已从接龙的建房/设置页和校验中移除；`showDrawingProcess` 确认是接龙模式的"结算是否展示每步画作"开关，已真正接上（关闭时评审广播不下发画作数据）。均有端到端测试验证。
+- **仍未处理**：审查报告里的一批低危加固项（未鉴权的公开房间列表、多标签页同账号、`strokeProgress` 校验过宽、限流内存不清理等）——本地部署场景风险可接受，等用户决定是否排期。
+- 详细的问题分析和测试记录见 `HISTORY.md` 最新一条。
+
+### 下一步
+
+socket 身份串号（只做了代码走读，无自动化测试）建议实机验证一遍；低危加固项等用户决定是否排期。之后如果继续有 Phase，按同样的"读文档 → 拉分支 → 开发 → 自检/真实测试 → PR"流程走。
 
 ## 交接须知
 
