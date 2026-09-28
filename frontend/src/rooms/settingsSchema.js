@@ -36,7 +36,8 @@ export function defaultSettings(mode) {
     brushMode: 'adjustable',
     colorMode: 'rgb',
     drawSeconds: 60,
-    rounds: 3,
+    rounds: 3, // 只有竞猜模式会真正用到（见 backend/src/rooms/validateSettings.js 的 validateGuessExtra）；
+    // 接龙模式提交时这个字段会被后端直接丢弃，留在这里只是图方便不用按 mode 拆两份 common，无副作用。
     wordSource: 'system',
     wordCategory: '',
   };

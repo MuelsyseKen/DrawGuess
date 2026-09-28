@@ -2,7 +2,7 @@
 // 接龙模式游戏内页面（见 FULLREADME.md 第14节）：复用 CanvasBoard 组件（Phase 5 加了
 // chainOwnerId 参数，见那边的注释），布局参照 GuessGame.vue 的结构，但回合模型完全不同——
 // 每个回合所有人同时行动（各自负责一条链的画或猜），不是"一个人画、其他人猜"。
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuth } from '../stores/auth';
 import { useRoom } from '../stores/room';
@@ -26,8 +26,35 @@ const customWord = ref('');
 const guessText = ref('');
 const nowMs = ref(Date.now());
 const finishingDraw = ref(false);
+const chatText = ref('');
+const chatError = ref('');
+const chatLogEl = ref(null);
 
 let tickTimer = null;
+
+// 聊天面板自动滚动到底部，和 GuessGame.vue 的 chat-log 处理方式一致（2026-09-27 补做，
+// 接龙模式之前完全没有聊天功能，见 FULLREADME 第5.2节"下方聊天栏（正常聊天）"）。
+watch(
+  () => chain.state.chatLog.length,
+  async () => {
+    await nextTick();
+    if (chatLogEl.value) {
+      chatLogEl.value.scrollTop = chatLogEl.value.scrollHeight;
+    }
+  }
+);
+
+async function submitChat() {
+  const text = chatText.value.trim();
+  if (!text) return;
+  chatError.value = '';
+  try {
+    await chain.sendChat(text);
+    chatText.value = '';
+  } catch (e) {
+    chatError.value = extractErrorMessage(e, '发送失败');
+  }
+}
 
 const myUserId = computed(() => auth.state.user?.id ?? null);
 const players = computed(() => (room.state.room ? room.state.room.players : []));
@@ -310,7 +337,8 @@ onBeforeUnmount(() => {
             <li v-for="(s, i) in chain.state.currentReview.steps" :key="i" class="review-step">
               <template v-if="s.type === 'draw'">
                 <p class="step-label">{{ usernameOf(s.by) }} 画的「{{ s.word ?? '（未知）' }}」：</p>
-                <ActionsPreview :actions="s.actions || []" />
+                <ActionsPreview v-if="s.actions" :actions="s.actions" />
+                <p v-else class="hint step-drawing-hidden">（房主关闭了结算画作展示）</p>
               </template>
               <template v-else>
                 <p class="step-label">
@@ -361,6 +389,19 @@ onBeforeUnmount(() => {
               <span>{{ s.score }}</span>
             </li>
           </ul>
+        </section>
+
+        <section class="chat-panel">
+          <div class="chat-log" ref="chatLogEl">
+            <p v-for="entry in chain.state.chatLog" :key="entry.id" class="chat-line">
+              <strong>{{ usernameOf(entry.userId) }}：</strong>{{ entry.text }}
+            </p>
+          </div>
+          <form class="chat-form" @submit.prevent="submitChat">
+            <input v-model="chatText" placeholder="聊天" maxlength="200" />
+            <button type="submit">发送</button>
+          </form>
+          <p v-if="chatError" class="error-msg small">{{ chatError }}</p>
         </section>
       </aside>
     </template>
@@ -483,8 +524,11 @@ onBeforeUnmount(() => {
 }
 
 .side-col.standalone {
-  width: 260px;
+  width: 320px;
   margin: 16px auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .scoreboard {
@@ -506,6 +550,58 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.chat-panel {
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 220px;
+}
+
+.chat-log {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.chat-line {
+  font-size: 13px;
+  margin: 0;
+  word-break: break-word;
+}
+
+.chat-form {
+  display: flex;
+  gap: 6px;
+}
+
+.chat-form input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.chat-form button {
+  border: none;
+  border-radius: 8px;
+  background: var(--accent, #4c8dff);
+  color: #fff;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.error-msg.small {
+  margin-top: 4px;
 }
 
 .score-row {

@@ -29,9 +29,18 @@ const state = reactive({
   currentVote: null, // { chainOwnerId, eligibleVoters, deadline, anonymous, voteCount, eligibleCount, myVoted }
 
   ended: null, // { scores, ranking }
+
+  chatLog: [], // { id, userId, text }，第5.2节"下方聊天栏（正常聊天）"，2026-09-27 补做
 });
 
 let listenersBound = false;
+let chatSeq = 0;
+
+function pushChat(entry) {
+  state.chatLog.push({ id: `${Date.now()}-${chatSeq++}`, ...entry });
+  // 和竞猜模式 useGame.js 一样，只在当前对局页面展示，保留最近 200 条足够
+  if (state.chatLog.length > 200) state.chatLog.splice(0, state.chatLog.length - 200);
+}
 
 function resetTurnLocalState() {
   state.myWordCandidates = null;
@@ -54,7 +63,12 @@ function bindListeners() {
     state.totalTurns = totalTurns;
     state.ended = null;
     state.scores = {};
+    state.chatLog = [];
     resetTurnLocalState();
+  });
+
+  socket.on('chain:chatMessage', ({ userId, text }) => {
+    pushChat({ userId, text });
   });
 
   socket.on('chain:turnStarted', ({ turn, totalTurns, phase, deadline }) => {
@@ -151,6 +165,10 @@ async function vote(approve) {
   return res;
 }
 
+function sendChat(text) {
+  return emitAsync('chain:chat', { text });
+}
+
 // 深链/刷新页面进入 /room/:id/chain-game 时兜底同步一次当前对局状态
 async function syncCurrent() {
   bindListeners();
@@ -197,6 +215,7 @@ function reset() {
   state.currentReviewResult = null;
   state.currentVote = null;
   state.ended = null;
+  state.chatLog = [];
   resetTurnLocalState();
 }
 
@@ -209,6 +228,7 @@ export function useChain() {
     finishDraw,
     submitGuess,
     vote,
+    sendChat,
     syncCurrent,
     reset,
   };

@@ -60,6 +60,16 @@ function attachChainHandlers(io, socket) {
     const result = engine.castVote(io, room.id, socket.user.id, payload && payload.approve);
     safeAck(ack, result.ok ? ok({}) : err(result.error, result.message));
   });
+
+  // 普通聊天（第5.2节"下方聊天栏（正常聊天）"，之前 Phase 5 漏做了，只做了竞猜模式那份
+  // 聊天+猜词合一的 game:chat）。接龙模式的猜词走的是结构化的 chain:submitGuess，不是
+  // 靠聊天里打对字来判定，所以这里纯粹是社交聊天，没有"猜中了"之类的特殊分支。
+  socket.on('chain:chat', (payload, ack) => {
+    const room = requireRoom(socket, ack);
+    if (!room) return;
+    const result = engine.handleChat(io, room.id, socket.user.id, payload && payload.text);
+    safeAck(ack, result.ok ? ok({}) : err(result.error, result.message));
+  });
 }
 
 module.exports = { attachChainHandlers };

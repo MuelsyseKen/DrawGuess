@@ -349,11 +349,21 @@
 | `brushMode` | `'fixed'\|'adjustable'` | — |
 | `colorMode` | `'rgb'\|'mono'` | — |
 | `drawSeconds` | number | 30 / 60 / 90 / 自定义 10~900 |
-| `rounds` | number | 1~5 / 自定义 1~10 |
 | `wordSource` | `'custom'\|'system'` | — |
 | `wordCategory` | string，仅 `wordSource==='system'` 时必填 | 必须匹配 `wordbanks/` 目录下某个分类（见第7节，Phase 2 提供 `GET /api/wordbanks` 供前端下拉） |
 
-**竞猜模式（`mode: 'guess'`）独有**：无（用完通用字段即可）。
+**竞猜模式（`mode: 'guess'`）独有**：
+
+| 字段 | 类型 | 范围 |
+|---|---|---|
+| `rounds` | number | 1~5 / 自定义 1~10，打几轮，每轮每人轮流画一次（第13.1节 `totalRounds`） |
+
+（2026-09-27 更正：`rounds` 原来错误地放在"通用字段"里、两种模式建房都会看到这个选项，但
+`chain/engine.js` 从来不读它——接龙模式实际用的是下面的 `chainRounds`。接龙模式建房页面同时
+出现"回合"和"接龙次数"两个选项，前者对接龙模式完全没有效果，是真实的 UX bug，不是有意为之
+的设计，Gemini/Deepseek 实机审查报告提出疑问后经用户确认修正：`rounds` 校验挪到
+`validateGuessExtra`，只在 `mode==='guess'` 时校验/返回；接龙模式的建房/设置编辑页面也把
+"回合"这个字段隐藏了。）
 
 **接龙模式（`mode: 'chain'`）独有**：
 
@@ -362,7 +372,7 @@
 | `guessSeconds` | number | 30 / 60 / 自定义 10~300 |
 | `chainRounds` | number | 1~7，默认 3 |
 | `anonymousVoting` | boolean | 开启后只隐藏投票人身份，结果依然公开（Phase 5 才会用到具体逻辑，Phase 2 只存设置） |
-| `showDrawingProcess` | boolean | 对应"加框画作展示环节" |
+| `showDrawingProcess` | boolean | 结算评审阶段（第14.6节）是否展示每一步的画作缩略图；关闭时 `chain:reviewChain` 广播里画步骤的 `actions` 字段直接不下发（不是发了让前端藏起来），前端只显示猜词文字，结算更快。（2026-09-27 之前这个字段校验/存储了但完全没接任何逻辑，结算永远展示画作，开关是摆设；经用户确认后在 `chain/engine.js` 的 `processNextReview` 里接上。） |
 
 服务器对以上范围做硬校验，超出范围直接拒绝（`INVALID_SETTINGS`），不做静默 clamp。
 
@@ -686,6 +696,7 @@ turnOrder[(ownerIndex + turn - 1) % N]
 | `chain:chooseWord` | `{ word }` | 仅 `turn===1` 的 `choosingWord` 阶段；只能给**自己的链**选词，`wordSource==='system'` 时必须在候选里 |
 | `chain:finishDraw` | 无 | 仅 `drawing` 阶段、且当前这一回合轮到你画；提前标记完成（见14.4节） |
 | `chain:submitGuess` | `{ guess }` | 仅 `guessing` 阶段、且当前这一回合轮到你猜；1~20字符非空 |
+| `chain:chat` | `{ text }` | 普通聊天（第5.2节），须有进行中对局，1~200 字；广播 `chain:chatMessage`（`{ userId, text }`），不含任何猜中判定（猜词走 `chain:submitGuess`）。2026-09-27 补做 |
 | `chain:vote` | `{ approve }` | 仅 `reviewing` 阶段、且你是当前正在公示的这条链的"可投票人"（14.6节） |
 | `game:getState` | 无 | 断线重连/刷新页面兜底同步：返回当前对局状态（`phase`/`turn`/`scores`/我这回合负责的链和角色等，见 `chain/engine.js` 的 `getStateForUser`）。**已知简化**：重连时如果正处在 `reviewing` 阶段，只返回"第几条/共几条"的进度提示，不重放完整的历史播报，前端从下一条 `chain:reviewChain` 广播开始继续看——评审阶段完整状态重建复杂度较高，记为本 Phase 的简化，见 `HISTORY.md`。 |
 

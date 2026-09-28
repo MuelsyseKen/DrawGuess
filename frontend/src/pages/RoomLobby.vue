@@ -199,12 +199,13 @@ onMounted(async () => {
           <dl class="settings-view">
             <div><dt>绘画时间</dt><dd>{{ room.state.room.settings.drawSeconds }} 秒</dd></div>
             <div v-if="room.state.room.mode === 'chain'"><dt>猜测时间</dt><dd>{{ room.state.room.settings.guessSeconds }} 秒</dd></div>
-            <div><dt>回合</dt><dd>{{ room.state.room.settings.rounds }}</dd></div>
+            <div v-if="room.state.room.mode === 'guess'"><dt>回合</dt><dd>{{ room.state.room.settings.rounds }}</dd></div>
             <div v-if="room.state.room.mode === 'chain'"><dt>接龙次数</dt><dd>{{ room.state.room.settings.chainRounds }} 环</dd></div>
             <div><dt>笔刷</dt><dd>{{ room.state.room.settings.brushMode === 'fixed' ? '单一笔刷' : '可调节' }}</dd></div>
             <div><dt>颜色</dt><dd>{{ room.state.room.settings.colorMode === 'rgb' ? 'RGB' : '单色' }}</dd></div>
             <div><dt>词库</dt><dd>{{ room.state.room.settings.wordSource === 'system' ? `系统出题（${room.state.room.settings.wordCategory}）` : '玩家自己出题' }}</dd></div>
             <div v-if="room.state.room.mode === 'chain'"><dt>匿名投票</dt><dd>{{ room.state.room.settings.anonymousVoting ? '开启' : '关闭' }}</dd></div>
+            <div v-if="room.state.room.mode === 'chain'"><dt>结算展示画作</dt><dd>{{ room.state.room.settings.showDrawingProcess ? '开启' : '关闭' }}</dd></div>
           </dl>
         </template>
 
@@ -254,7 +255,7 @@ onMounted(async () => {
             </div>
             <input type="number" v-model.number="editForm.guessSeconds" min="10" max="300" />
           </div>
-          <div class="field">
+          <div class="field" v-if="room.state.room.mode === 'guess'">
             <label>回合</label>
             <div class="pill-group">
               <button v-for="r in ROUNDS_PRESETS" :key="r" type="button" class="pill" :class="{ active: editForm.rounds === r }" @click="editForm.rounds = r">{{ r }}</button>
@@ -269,7 +270,7 @@ onMounted(async () => {
             <label><input type="checkbox" v-model="editForm.anonymousVoting" /> 匿名投票</label>
           </div>
           <div class="field" v-if="room.state.room.mode === 'chain'">
-            <label><input type="checkbox" v-model="editForm.showDrawingProcess" /> 加框画作展示环节</label>
+            <label><input type="checkbox" v-model="editForm.showDrawingProcess" /> 结算时展示每一步的画作（关闭则只显示猜词文字，结算更快）</label>
           </div>
           <div class="field">
             <label>词库</label>

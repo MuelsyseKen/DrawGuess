@@ -141,7 +141,7 @@ async function handleSubmit() {
               <label><input type="checkbox" v-model="form.anonymousVoting" /> 匿名投票（只隐藏投票人身份，结果依然公开）</label>
             </div>
             <div class="field">
-              <label><input type="checkbox" v-model="form.showDrawingProcess" /> 加框画作展示环节</label>
+              <label><input type="checkbox" v-model="form.showDrawingProcess" /> 结算时展示每一步的画作（关闭则只显示猜词文字，结算更快）</label>
             </div>
           </template>
         </section>
@@ -213,7 +213,7 @@ async function handleSubmit() {
             />
           </div>
 
-          <div class="field">
+          <div class="field" v-if="mode === 'guess'">
             <label>回合</label>
             <div class="pill-group">
               <button

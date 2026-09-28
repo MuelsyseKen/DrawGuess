@@ -409,6 +409,11 @@ function processNextReview(io, roomId) {
   const matched = !chain.autoFail && finalGuess != null && finalGuess === chain.originalWord;
   const participantIds = uniqueParticipants(chain);
 
+  // showDrawingProcess=false（房主关闭"结算时展示每一步的画作"）时，画步骤的 actions 不下发，
+  // 只留 word——这里从根源上不发数据，而不是发了让前端自己藏起来，省流量也避免"关了但其实
+  // 数据都在，随便改改前端就能看到"这种不彻底的开关。之前这个字段校验/存储了但完全没接
+  // 任何逻辑，结算永远展示画作，开关是摆设（2026-09-27 用户确认后要求接上，见 HISTORY.md）。
+  const includeDrawings = room.settings.showDrawingProcess !== false;
   io.to(roomChannel(roomId)).emit('chain:reviewChain', {
     chainOwnerId: ownerId,
     originalWord: chain.originalWord,
@@ -418,7 +423,7 @@ function processNextReview(io, roomId) {
       by: s.by,
       word: s.type === 'draw' ? s.word : undefined,
       guessWord: s.type === 'guess' ? s.guessWord : undefined,
-      actions: s.type === 'draw' ? s.actions : undefined,
+      actions: s.type === 'draw' && includeDrawings ? s.actions : undefined,
       timedOut: Boolean(s.timedOut),
     })),
     matched,
@@ -663,12 +668,29 @@ function onPlayerRemoved(io, roomId, userId) {
   }
 }
 
+// 普通聊天（第5.2节，2026-09-27 补做）：不判定猜中与否，纯广播。room.status 须是
+// 'playing'（对局进行中）——用 chainStore.getSession 判断是否有进行中的对局，跟
+// game/engine.js 的 handleChat 前半段思路一致，只是去掉了猜词判定那部分。
+function handleChat(io, roomId, userId, rawText) {
+  const session = chainStore.getSession(roomId);
+  if (!session) return { ok: false, error: 'NO_ACTIVE_GAME', message: '当前没有进行中的对局' };
+
+  const text = typeof rawText === 'string' ? rawText.trim() : '';
+  if (!text || text.length > 200) {
+    return { ok: false, error: 'INVALID_MESSAGE', message: '消息不能为空，且不超过 200 个字符' };
+  }
+
+  io.to(roomChannel(roomId)).emit('chain:chatMessage', { userId, text });
+  return { ok: true };
+}
+
 module.exports = {
   startGame,
   chooseWord,
   finishDraw,
   submitGuess,
   castVote,
+  handleChat,
   getStateForUser,
   onPlayerDisconnected,
   onPlayerReconnected,
