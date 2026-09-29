@@ -184,84 +184,7 @@
 
 ## 10. 安全问题跟踪
 
-记录方式见 `Agents.md`"安全审查规范"。**只有确认修复并验证过才打勾**；明确不修的标"已知取舍"并说明理由。尚未解决/待验证的事项汇总在 `ISSUES.md`。
-
-### Phase 1（2026-09-23，Deepseek + Gemini 第三方审查 + 人工验证）
-
-| # | 问题 | 来源 | 状态 | 备注 |
-|---|---|---|---|---|
-| 1 | `JWT_SECRET` 生产环境沿用默认值，可伪造任意用户 | Deepseek + Gemini | [x] | `utils/token.js`：`NODE_ENV=production` 且密钥为默认值时直接 `throw` 拒绝启动；已手工验证 |
-| 2 | JWT 未显式锁定算法 | Deepseek | [x] | 显式 `HS256` / `algorithms:['HS256']` |
-| 3 | `register`/`login` 响应多下发冗余 `token` 字段，削弱 httpOnly 防护 | Deepseek | [x] | 响应体只留 `user`，前端本来就没读过 |
-| 4 | `res.cookie` 与 `res.clearCookie` 属性不一致，登出可能登不掉 | Deepseek + Gemini | [x] | 抽出 `AUTH_COOKIE_OPTIONS` 共用；已验证登出后 `Set-Cookie` 过期且 `/me` 返回 401 |
-| 5 | Cookie 有效期与 `JWT_EXPIRES_IN` 两处手写 | Deepseek | [x] | 改用 `ms(JWT_EXPIRES_IN)` 派生 |
-| 6 | Socket.io 握手无鉴权 | Deepseek + Gemini | [x] | `io.use(socketAuthMiddleware)` 从握手 Cookie 解析 token 挂 `socket.user`（未登录为 `null`，由具体事件判断） |
-| 7 | 鉴权保留了 `Authorization: Bearer` 兜底，白开攻击面 | Deepseek | [x] | 移除，只认 httpOnly cookie；已验证仅带 Bearer 访问 `/me` 返回 401 |
-| 8 | 登录/注册无限流 | Deepseek | [x] | `express-rate-limit`，同 IP 15 分钟 20 次；已验证第 20 次后 429 |
-| 9 | 密码哈希用同步 API 且轮数偏低 | Deepseek | [x] | 改 `bcryptjs` 异步 `hash/compare`，`SALT_ROUNDS=12`；注册/登录全流程无回归 |
-| 10 | 时间字段非标准 ISO 8601 | Deepseek | [x] | 改 `strftime('%Y-%m-%dT%H:%M:%fZ','now')` |
-| 11 | 缺基础安全响应头 | Deepseek | [x] | 引入 `helmet()`，curl 确认（CSP 后续见 #35） |
-| 12 | 前端输入框无前置长度校验 | Deepseek | [x] | `AuthModal.vue` 加 `minlength`/`maxlength` 对齐后端 |
-| 13 | 无 token 黑名单：登出只清 cookie，旧 token 到期前仍有效 | Deepseek | [ ] 已知取舍 | 引入 Redis 属重型依赖（`Agents.md` 禁止未经确认）；有改密码/强制下线需求时再评估 |
-| 14 | 无自动化测试框架 | Deepseek | [ ] 已知取舍 | 人工验证已覆盖主要路径；复杂度上升后再评估 |
-| 15 | 前端无路由守卫 | Deepseek | [ ] 已知取舍 | Phase 1 无需保护的路由；服务端权限校验才是真正的边界 |
-| 16 | `COOKIE_SAME_SITE=none`（跨站部署）未联调 | 人工自查 | [ ] 未验证 | 本地为同源部署；若前后端分属不同顶级域名，上线前须验证 `none` + `COOKIE_SECURE=true` + HTTPS |
-
-### Phase 2（2026-09-23，人工自查：邀请码靠不可猜测性做访问控制）
-
-| # | 问题 | 来源 | 状态 | 备注 |
-|---|---|---|---|---|
-| 17 | `room:joinByCode` 无限流，可暴力猜 6 位邀请码 | 人工自查 | [x] | `utils/rateLimit.js`（内存滑动窗口），同用户每分钟 20 次，超限 `TOO_MANY_ATTEMPTS`；正常/错误邀请码流程已验证不受影响，限流触发分支仅走读 |
-| 18 | 内存状态无全局配额，同用户可无限 `room:create` 刷内存 | 人工自查 | [ ] 已知取舍 | 房间对象很小，小规模场景影响有限；开放给不特定公众前需补"每用户房间数/总房间数"上限 |
-| 19 | Socket 事件 payload 无显式大小限制 | 人工自查 | [ ] 已知取舍 | Socket.io 默认 1MB `maxHttpBufferSize` 已是兜底；观察到滥用再收紧 |
-
-### Phase 3（2026-09-24，人工自查：画板高频输入）
-
-| # | 问题 | 来源 | 状态 | 备注 |
-|---|---|---|---|---|
-| 20 | `canvas:strokeProgress` 无 ack/限流，恶意客户端可高频广播刷带宽 | 人工自查 | [ ] 已知取舍 | 落地类动作受 1MB 上限和逐次校验约束；该事件只转发不落日志、开销小；观察到滥用再加"每 socket 每秒 N 次"节流 |
-| 21 | 画板事件"房间内任意人可画/撤销/清空" | 人工自查 | [x] | Phase 4 `requireCanDraw`（13.4）收紧为仅当前作画者；Phase 5 收紧为仅本回合轮到你的链（14.5）；测试页行为不变 |
-
-### Phase 4（2026-09-26 补登：合并前漏做了安全审查登记，Phase 5 开工前补上）
-
-| # | 问题 | 来源 | 状态 | 备注 |
-|---|---|---|---|---|
-| 22 | `game:chat` 无限流，可刷屏 | 人工自查 | [ ] 已知取舍 | 同 #20；聊天经 Vue 插值渲染，全项目无 `v-html`，无 XSS，仅缺防刷屏 |
-| 23 | 自定义出题词无敏感词过滤 | 人工自查 | [ ] 已知取舍 | 13.2 节已写明一期不做；属内容审核范畴，无权限/越权含义 |
-| 24 | 私发事件（`game:wordChoices`/`wordRevealed`）是否误走房间广播 | 人工走读 + 自检脚本 | [x] | 逐条核对 `emitToUser` 调用无泄露；脚本验证非作画者收不到候选词/谜底 |
-
-### Phase 5（2026-09-26，人工自查：一房间多画板、全员同时行动）
-
-| # | 问题 | 来源 | 状态 | 备注 |
-|---|---|---|---|---|
-| 25 | `chain:*` 回合内事件无限流 | 人工自查 | [ ] 已知取舍 | 同 #20/#22；状态机校验完备，重复选词/提交/投票均已验证被拒 |
-| 26 | 多画板复合 key 下能否跨链读写他人画板 | 人工自查 + 脚本 | [x] | `canDraw` 严格按轮转公式校验；脚本验证非当前人画别人的链被 `NOT_YOUR_TURN` 拒绝；`canvas:getState` 只读沿用房间成员可读 |
-| 27 | 评审投票"可投票人"范围被绕过可自投操纵分数 | 人工自查 + 脚本 | [x] | `castVote` 校验 `eligibleVoters`，开票时固定，链参与者不在其中；非 eligible 投票被 `NOT_ELIGIBLE_VOTER` 拒绝 |
-| 28 | "不暂停倒计时"的断线处理会否被用来故意断线躲避猜词 | 人工自查 | [ ] 已知取舍，非疏漏 | 效果等同超时不猜（记 `guessWord:null`），不会更易得分，无操纵空间 |
-
-### Phase 6（2026-09-27，人工自查 + 脚本：查他人数据、持久化用户内容）
-
-| # | 问题 | 来源 | 状态 | 备注 |
-|---|---|---|---|---|
-| 29 | `GET /api/records/drawings/:id` 按主键查询可能越权遍历 | 人工自查 + 脚本 | [x] | 应用层比对 `row.userId === req.user.id`，非本人与不存在统一 404；脚本验证 |
-| 30 | `drawings.stroke_data` 无大小上限 | 人工自查 | [ ] 已知取舍 | 笔迹产生时已受 `MAX_POINTS` 约束；面向公众开放前需重评估 |
-| 31 | 排行榜向任意登录用户暴露所有人 `username` + 总分 | 人工自查 | [x] 预期设计 | 用户名在游戏内本就公开；接口未带房间号等可推断"和谁玩过"的字段 |
-
-### Phase 7（2026-09-27，部署脚本会把服务暴露到局域网/公网 + 实机交叉审查）
-
-| # | 问题 | 来源 | 状态 | 备注 |
-|---|---|---|---|---|
-| 32 | `FRONTEND_DIST_PATH` 配置不当可能经 `express.static` 暴露 `backend/.env` | 人工自查 | [x] | 仅当该目录下存在 `index.html` 才挂载；脚本固定传 `frontend/dist`；提醒部署者勿指向敏感目录 |
-| 33 | `start.sh` 打印局域网 IP，局域网内任何人可访问首页 | 人工自查 | [ ] 已知取舍 | "局域网可访问"即需求本身；加入具体房间仍需邀请码（#17）；不可信网络需部署者用防火墙限来源 |
-| 34 | 生产 CSP 是否挡住单端口托管的前端产物 | 人工自查 + curl | [x] | `script-src 'self'` 不挡外链模块脚本；`style-src` 允许 `'unsafe-inline'`（Vue scoped style）。仅测了 `localhost`，局域网 IP 下的问题见 #35 |
-| 35 | CSP 默认的 `upgrade-insecure-requests` 使局域网 IP 访问时资源被升级成 https，页面白屏（loopback 豁免故 localhost 测不出） | Deepseek（Windows + 局域网 IP 实测） | [x] | `helmet()` 显式去掉该指令；项目本就无内置 HTTPS，放到 HTTPS 反代后无影响 |
-| 36 | `start.sh` 仅"提醒"改 `NODE_ENV`/`JWT_SECRET`，照抄 `.env.example` 会得到默认密钥的局域网服务 | Deepseek | [x] | 启动前强制检查 `backend/.env`，不满足 `exit 1` 并指出缺什么；已验证 |
-| 37 | 同浏览器换账号后 socket 沿用旧身份（`socket.user` 仅握手时算一次） | Deepseek（中危） | [ ] 已修复，待验证 | `stores/auth.js` 登录/注册/登出调用 `reconnectSocket()`（同一 Socket 对象 `disconnect()`+`connect()`，保留已绑定的监听器）。**仅走读，无自动化测试**，按规范不打勾；实机验证步骤见 `ISSUES.md` |
-| 38 | `GET /api/rooms/public`、`GET /api/wordbanks` 未鉴权 | Deepseek 报告 | [ ] 待评估 | 未逐条复核；不含邀请码，无越权后果。详见 `ISSUES.md` |
-| 39 | `canvas:strokeProgress` 校验过宽（不限 width 1~64、x/y ∈ [0,1]），可发畸形值让他人渲染异常 | Deepseek 报告 | [ ] 待评估 | 未逐条复核；与 #20 相关。详见 `ISSUES.md` |
-| 40 | `utils/rateLimit.js` 的桶 Map 永不清理 | Deepseek 报告 | [ ] 待评估 | 未逐条复核；上限为注册用户数，极低危 |
-| 41 | 反向代理下限流按代理 IP 失真（`TRUST_PROXY` 默认 false） | Deepseek 报告 | [ ] 待评估 | `.env.example` 已提示；建议进部署清单 |
-| 42 | `records` 查询接口无限流（排行榜为全表聚合） | Deepseek 报告 | [ ] 待评估 | 未逐条复核；需登录，本地部署低危 |
+已整体迁移到 [`ISSUES.md`](ISSUES.md)（含 Phase 1~7 全部 #1~42 条、编号不变）。记录规范见 `Agents.md`"安全审查规范"；本节只保留指针，不重复维护表格，避免两处内容漂移。
 
 ---
 
@@ -338,7 +261,7 @@
 
 事件名统一 `room:` 前缀，客户端 → 服务端的事件都带 ack 回调，返回 `{ ok: true, ...data }` 或 `{ ok: false, error, message }`（`error` 取值如 `NOT_AUTHENTICATED` / `INVALID_SETTINGS` / `ROOM_NOT_FOUND` / `ROOM_FULL` / `INVALID_INVITE_CODE` / `NOT_HOST` / `TOO_MANY_ATTEMPTS`）。
 
-`room:joinByCode` 有限流：同一登录用户每分钟最多尝试 20 次，超过返回 `TOO_MANY_ATTEMPTS`（见第10节 Phase 2 安全审查 #1，防止暴力猜邀请码）。
+`room:joinByCode` 有限流：同一登录用户每分钟最多尝试 20 次，超过返回 `TOO_MANY_ATTEMPTS`（见 `ISSUES.md` #17，防止暴力猜邀请码）。
 
 **客户端 → 服务端**
 
@@ -450,7 +373,7 @@ canvasSessions: Map<roomId, {
 | `canvas:actionRedone` | `{ actionId, type, targetActionId? }` | 重做 |
 | `canvas:cleared` | `{ roomId, chainOwnerId }`（竞猜/测试页 `chainOwnerId` 为 `null`）；前端据此判断是否是当前正在看的画板，缺 `roomId` 会被丢弃 | 清空（含竞猜每回合开始时的自动清空） |
 
-### 12.4 已知限制（记入第10节安全问题跟踪表 #20）
+### 12.4 已知限制（记入 `ISSUES.md` #20）
 
 - 线擦只能擦 `stroke`/`fill`，不能擦另一条 `lineErase`（没有"擦除擦除动作"的需求）。
 - 客户端渲染策略是"整幅重绘"（每次收到会改变可见集合的事件就用 `actions` 全量重画一次画布），不做局部脏矩形优化——本地部署/小规模场景下笔迹总量有限，这个简化换取实现正确性，若以后发现性能问题再优化。
@@ -493,7 +416,7 @@ games: Map<roomId, {
 
 非作画者收到的 `game:turnStarted` 不含 `word`，只有 `wordLength`（谜底的字符数，中文按字符数不按拼音）；前端按 `wordLength` 渲染成等量占位符（比如"＿ ＿ ＿"），不做"提前展示部分汉字"之类的渐进提示——一期只做这个最简单的形式，更复杂的提示策略留到以后有需要再加。
 
-### 13.4 画板权限收紧（解决 Phase 3 遗留的开放假设，第10节 #21）
+### 13.4 画板权限收紧（解决 Phase 3 遗留的开放假设，`ISSUES.md` #21）
 
 `backend/src/socket/canvas.js` 里所有会改变画板状态的事件（`strokeEnd`/`fill`/`eraseStroke`/`undo`/`redo`/`clear`）新增一层校验：如果该房间当前有进行中的 Phase 4 对局（`games` 里存在这个 `roomId` 且 `phase==='drawing'`），只有 `socket.user.id === game.drawerId` 才允许操作，其他人一律 `NOT_YOUR_TURN`。`choosingWord` 阶段（还没进入绘画）画板保持锁定（谁都不能画，包括作画者本人——词还没选定）。房间没有进行中对局时（`status:'waiting'`，比如还在 `/room/:id/canvas-test` 测试页玩），行为不变，沿用 Phase 3"任意在线玩家可画"的规则——测试页不受这层限制影响。
 
@@ -695,14 +618,14 @@ turnOrder[(ownerIndex + turn - 1) % N]
 
 沿用 Phase 1 `db/init.js` 就建好的两张表结构不变，本 Phase 只是补上了业务读写代码和 4 个索引（`game_records(user_id)` / `game_records(played_at)` / `drawings(user_id)` / `drawings(created_at)`）。
 
-### 15.3 REST 接口（`backend/src/routes/records.js`，全部要求登录，见第10节 #29）
+### 15.3 REST 接口（`backend/src/routes/records.js`，全部要求登录，见 `ISSUES.md` #29）
 
 | 接口 | 说明 |
 |---|---|
 | `GET /api/records/me?mode=&limit=&offset=` | 个人战绩历史，按 `played_at` 倒序分页；`mode` 可选 `guess`/`chain`，不传返回全部 |
 | `GET /api/records/leaderboard?mode=&limit=` | 总分排行榜（`SUM(score)` 聚合，`ORDER BY totalScore DESC, gamesPlayed DESC`），附带调用者自己的名次（`me` 字段，哪怕不在返回的前 N 名列表里也能拿到） |
 | `GET /api/records/drawings?limit=&offset=` | 个人作画记录列表，只带 `word`（用 `json_extract` 从 `stroke_data` 里取，不下发完整 `actions`，避免列表页一次性拉一堆大笔迹数据） |
-| `GET /api/records/drawings/:id` | 单条作画记录详情，带完整 `actions`，供前端回放/放大预览；非本人的记录统一 404（第10节 #29） |
+| `GET /api/records/drawings/:id` | 单条作画记录详情，带完整 `actions`，供前端回放/放大预览；非本人的记录统一 404（`ISSUES.md` #29） |
 
 `limit` 统一夹在 `[1, 50]`（列表类默认 20，排行榜默认 20），非法 `mode`/非法 `id` 返回 400，不静默纠正。
 

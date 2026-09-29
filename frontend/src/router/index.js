@@ -38,7 +38,7 @@ const router = createRouter({
   routes,
 });
 
-// 路由守卫：房间相关页面需要登录（Phase 1 记在 FULLREADME.md 第10节#15 的已知取舍，Phase 2 补上）。
+// 路由守卫：房间相关页面需要登录（Phase 1 记在 ISSUES.md #15 的已知取舍，Phase 2 补上）。
 // 未登录时跳回大厅，大厅页会展示登录入口。
 router.beforeEach(async (to) => {
   if (!to.meta.requiresAuth) return true;

@@ -74,7 +74,7 @@ npm run dev         # http://localhost:5173
 # 第一次部署：先准备后端配置
 cp backend/.env.example backend/.env
 # 至少改两处：NODE_ENV=production；JWT_SECRET 换成一个随机字符串
-#（这两项不满足后端会直接拒绝启动，是有意为之的安全检查，见 FULLREADME.md 第10节 #1）
+#（这两项不满足后端会直接拒绝启动，是有意为之的安全检查，见 ISSUES.md #1）
 
 ./scripts/start.sh
 ```
@@ -94,7 +94,7 @@ Windows 请在 **Git Bash** 里运行脚本（脚本已处理 Git Bash 的路径
 - 两种玩法（竞猜 / 接龙）、房间系统、画板引擎、战绩/排行榜/作画记录、响应式适配、单端口部署脚本均已可用。
 - **未解决的问题、待验证事项、已知取舍** → 见 [`ISSUES.md`](ISSUES.md)。
 - 各阶段的架构决定、踩坑与修复过程 → 见 `HISTORY.md`。
-- 协议与设计细节 → 见 `FULLREADME.md`；安全问题跟踪在其第10节。
+- 协议与设计细节 → 见 `FULLREADME.md`；安全问题跟踪在 `ISSUES.md`。
 
 之后如果继续开发，按"读文档 → 从最新 `main` 拉分支 → 开发 → 真实测试 → PR（不自行合并）"的流程走，范围以用户在对话里给出的为准。
 
