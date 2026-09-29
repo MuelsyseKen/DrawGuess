@@ -8,7 +8,7 @@
 #
 # 部署前必读：
 #   1. backend/.env 必须存在，且 NODE_ENV=production、JWT_SECRET 改成随机值 ——
-#      这两项不满足后端会直接拒绝启动（安全设计，见 FULLREADME.md 第10节 #1）。
+#      这两项不满足后端会直接拒绝启动（安全设计，见 ISSUES.md #1）。
 #      没有 backend/.env 的话先 `cp backend/.env.example backend/.env` 再改。
 #   2. 局域网内其他设备访问时，用下面脚本打印出来的局域网 IP + 端口，不要用 localhost
 #      （localhost 在每台设备上指向的都是它自己）。
@@ -52,7 +52,7 @@ fi
 # `start.sh` 的定位就是"把这台机器暴露到局域网"，如果用户直接 `cp .env.example .env`
 # 什么都不改就跑这个脚本，会得到一台用公开默认密钥签发 JWT 的局域网服务，局域网内任何
 # 人都能伪造任意用户身份登录——这里在部署脚本这一层再拦一道，而不只是依赖后端那道检查
-#（2026-09-27 Deepseek 实机部署审查提出的建议，见 FULLREADME.md 第10节 #35）。
+#（2026-09-27 Deepseek 实机部署审查提出的建议，见 ISSUES.md #35）。
 ENV_NODE_ENV=$(grep -E '^NODE_ENV=' backend/.env | tail -1 | cut -d= -f2 || true)
 ENV_JWT_SECRET=$(grep -E '^JWT_SECRET=' backend/.env | tail -1 | cut -d= -f2- || true)
 if [[ "$ENV_NODE_ENV" != "production" || "$ENV_JWT_SECRET" == "change-me-to-a-random-secret" || -z "$ENV_JWT_SECRET" ]]; then

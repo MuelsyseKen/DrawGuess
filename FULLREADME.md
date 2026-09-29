@@ -55,7 +55,7 @@
 8. **结算页**（回合/对局结束后展示排名与总分）
 9. **战绩历史 / 排行榜 / 我的作画记录**（Phase 6，见第15节；首页底部提供入口，未登录点击和"创建房间"一样先弹登录框）
 
-响应式要求：以上所有页面在桌面浏览器和手机浏览器下都要可用，画板和工具栏在小屏幕下需要有合理的折叠/适配方案（不能simplemente 缩小导致按钮点不到）。
+响应式要求：以上所有页面在桌面浏览器和手机浏览器下都要可用，画板和工具栏在小屏幕下需要有合理的折叠/适配方案（不能简单等比缩小导致按钮点不到）。
 
 ---
 
@@ -84,9 +84,8 @@
 **右侧**
 - 绘画时间：30 / 60 / 90 / 自定义（最高 900 秒）
 - 猜测时间：30 / 60 / 自定义（最高 300 秒）
-- 回合：1~5 / 自定义（最高 10）
-- 接龙次数：1~7 环 / 默认（超出默认环数上限为 7）
-- 加框画作展示环节（多选）：展示每人作画过程。**底层始终按笔迹矢量序列记录**，这样无论一期是否做"逐笔回放"UI，数据都是齐的；如果一期不做回放播放器，展示环节直接显示成品图即可。
+- 接龙次数：1~7 环（默认 3）。接龙模式**没有**"回合"选项，总回合数由接龙次数决定（14.2）
+- 结算时展示每步画作（开关，`showDrawingProcess`）：结算评审阶段是否展示每一步的画作缩略图。**底层始终按笔迹矢量序列记录**，与这个开关无关。
 - 词库（单选）：同竞猜模式。
 
 设置完成 → 进入房间大厅页。
@@ -169,145 +168,27 @@
 
 为了避免多个对话/多个 AI 同时改动导致混乱，开发按 Phase 拆分，**一个 Phase 对应一条分支，原则上也对应一次对话**。当前规划如下（如某个 Phase 范围过大，可以在开工前进一步拆分成子 Phase，命名为 `phase-N-x-*`）：
 
-| Phase | 分支名建议 | 范围 |
-|---|---|---|
-| 1 | `phase-1-skeleton-auth` | 项目骨架（前后端目录结构、构建配置）+ 账号系统（注册/登录、SQLite users 表、密码加密、基础 REST 路由） |
-| 2 | `phase-2-rooms` | 房间系统：创建/加入房间（私人/公开）、邀请码、公开房间列表、房间设置页 UI（竞猜/接龙参数表单）、对应 Socket.io 房间协议 |
-| 3 | `phase-3-canvas-engine` | 画板引擎：Canvas 工具栏（画笔/橡皮/线擦/油漆桶/取色器/RGB）、矢量笔迹协议、多端实时同步、撤销/重做/清空 |
-| 4 | `phase-4-guess-mode` | 竞猜模式完整玩法：抽词、作画者选词、倒计时、聊天+猜词、计分、回合流转、结算页 |
-| 5 | `phase-5-chain-mode` | 接龙模式完整玩法：选词作画、传递猜词、多环流转、结算公示、评分投票（含匿名投票） |
-| 6 | `phase-6-records` | 战绩/排行榜/个人作画记录：`game_records`/`drawings` 表落地、历史页面、排行榜页面 |
-| 7 | `phase-7-polish-deploy` | 响应式适配打磨（桌面/移动端）、特殊效果占位 UI 补全、本地部署脚本与文档收尾 |
+| Phase | 分支名建议 | 范围 | 状态 |
+|---|---|---|---|
+| 1 | `phase-1-skeleton-auth` | 项目骨架（前后端目录结构、构建配置）+ 账号系统（注册/登录、SQLite users 表、密码加密、基础 REST 路由） | 已合并 |
+| 2 | `phase-2-rooms` | 房间系统：创建/加入房间（私人/公开）、邀请码、公开房间列表、房间设置页 UI（竞猜/接龙参数表单）、对应 Socket.io 房间协议 | 已合并 |
+| 3 | `phase-3-canvas-engine` | 画板引擎：Canvas 工具栏（画笔/橡皮/线擦/油漆桶/取色器/RGB）、矢量笔迹协议、多端实时同步、撤销/重做/清空 | 已合并 |
+| 4 | `phase-4-guess-mode` | 竞猜模式完整玩法：抽词、作画者选词、倒计时、聊天+猜词、计分、回合流转、结算页 | 已合并 |
+| 5 | `phase-5-chain-mode` | 接龙模式完整玩法：选词作画、传递猜词、多环流转、结算公示、评分投票（含匿名投票） | 已合并 |
+| 6 | `phase-6-records` | 战绩/排行榜/个人作画记录：`game_records`/`drawings` 表落地、历史页面、排行榜页面 | 已合并 |
+| 7 | `phase-7-polish-deploy` | 响应式适配打磨（桌面/移动端）、特殊效果占位 UI 补全、本地部署脚本与文档收尾 | 已合并 |
 
-**分支与合并流程**：
-
-1. 每个 Phase 开工前，从最新的 `main` 拉出对应分支。
-2. 该 Phase 的开发、调试、文档更新都在这条分支上进行，不直接改 `main`。
-3. Phase 内容完成后，AI 开 Pull Request 到 `main`，PR 描述里列清楚这个 Phase 做了什么、是否有遗留问题。
-4. **AI 不自行合并 PR**——必须等用户明确确认"没问题、可以合并"之后，才能合并（或者由用户自己在 GitHub 上合并）。这一条是硬性规则，写进 `Agents.md`。
-5. 合并后，下一个 Phase 从更新后的 `main` 重新拉分支。
-
-如果某个 Phase 因为范围太大跨了多次对话，沿用同一条分支继续提交即可，不用为"每次对话"再开新分支。
+**分支与合并流程**（硬性规则见 `Agents.md`）：Phase 开工前从最新 `main` 拉分支；开发与文档更新都在该分支；完成后开 PR，**AI 不自行合并**，等用户确认；合并后下一个 Phase 从更新后的 `main` 重新拉分支。一个 Phase 跨多次对话时沿用同一分支。
 
 ---
 
 ## 10. 安全问题跟踪
 
-记录方式见 `Agents.md`"安全审查规范"一节。**只有确认修复并验证过才打勾**；明确不修的问题标注"已知取舍"并说明理由，不能被静默略过。
-
-### Phase 1 审查（2026-09-23，Deepseek + Gemini 两份第三方审查 + 人工验证修复）
-
-| # | 问题 | 发现方式 | 状态 | 备注 |
-|---|---|---|---|---|
-| 1 | `JWT_SECRET` 生产环境沿用不安全默认值，可伪造任意用户身份 | Deepseek + Gemini | [x] 已解决 | `utils/token.js`：`NODE_ENV=production` 且密钥仍是默认值时直接 `throw` 拒绝启动；非生产环境打印警告。已用 `NODE_ENV=production` 手工验证会启动失败。 |
-| 2 | JWT 签发/校验未显式锁定算法，理论上存在算法混淆攻击面 | Deepseek | [x] 已解决 | `signToken`/`verifyToken` 显式指定 `algorithm: 'HS256'` / `algorithms: ['HS256']`。 |
-| 3 | `register`/`login` 响应体里多下发了一份 `token` 字段，前端用的是纯 cookie 模型，这份 token 完全冗余，等于把 httpOnly 的防护白设了一半 | Deepseek（Gemini 交叉验证"前端未使用 token"） | [x] 已解决 | 响应体只保留 `user`，已确认前端 `api/auth.js`/`stores/auth.js` 本来就没读过 `token` 字段，零前端改动。 |
-| 4 | `res.cookie` 设置时的属性（`sameSite`/`secure`/`path`）和 `res.clearCookie` 不一致，浏览器可能拒绝清除 cookie，导致"登出"登不掉 | Deepseek + Gemini（结论一致） | [x] 已解决 | 抽出 `AUTH_COOKIE_OPTIONS` 常量，`setAuthCookie`/`clearAuthCookie` 共用；`sameSite` 可通过 `COOKIE_SAME_SITE` 环境变量配置。已手工验证登出后 `Set-Cookie` 正确带上 `Expires=Thu, 01 Jan 1970...`，且 `me` 接口随后返回 401。 |
-| 5 | Cookie 有效期 `COOKIE_MAX_AGE_MS` 硬编码 7 天，和 `JWT_EXPIRES_IN` 两处手写数字，改一处容易漏改另一处 | Deepseek | [x] 已解决 | 改用 `ms(JWT_EXPIRES_IN)` 派生，单一数据源。 |
-| 6 | Socket.io 握手阶段无鉴权，任何人都能建立连接且拿不到身份信息——Phase 1 看起来无害（还没有房间协议），但会变成埋在 Phase 2 里的雷 | Deepseek + Gemini（结论一致） | [x] 已解决 | `socket/index.js` 新增 `io.use(socketAuthMiddleware)`，从握手 Cookie 头解析并校验 token，挂载 `socket.user`（未登录为 `null`，不拒绝连接，是否强制登录交给具体事件处理器判断）。 |
-| 7 | 鉴权中间件保留了 `Authorization: Bearer` 兜底，但前端从不使用，白白多开一条攻击面（一旦有 XSS，攻击者可以把偷到的 token 当 Bearer 用） | Deepseek | [x] 已解决 | `middleware/auth.js` 移除 Bearer 分支，只认 httpOnly cookie。已手工验证：带 `Authorization: Bearer <token>` 但不带 cookie 访问 `/me` 返回 401。 |
-| 8 | 登录/注册接口无限流，存在暴力破解用户名密码的风险 | Deepseek（"强烈建议"项，人工评估后决定直接一起修） | [x] 已解决 | 引入 `express-rate-limit`，`/register` `/login` 共用同一 IP 15 分钟 20 次的限制。已手工验证第 20 次之后返回 429。 |
-| 9 | 密码哈希用同步 API（`bcrypt.hashSync`/`compareSync`）会阻塞 event loop；`SALT_ROUNDS` 偏低（10） | Deepseek | [x] 已解决 | 改用 `bcryptjs` 的异步 `hash`/`compare`，`SALT_ROUNDS` 提到 12。已跑通注册/登录全流程确认无回归。 |
-| 10 | `created_at`/`played_at` 用 SQLite `datetime('now')`，格式非标准 ISO 8601，不同前端环境解析容易出现时区/格式不一致 | Deepseek | [x] 已解决 | 改成 `strftime('%Y-%m-%dT%H:%M:%fZ','now')`，输出形如 `2026-09-23T03:03:23.929Z`。开发库已删除重建（Phase 1 无正式数据）。 |
-| 11 | 缺少基础安全响应头（CSP/HSTS/X-Content-Type-Options 等） | Deepseek（"强烈建议"项） | [x] 已解决 | `app.js` 引入 `helmet()`，已用 curl 确认响应头出现。 |
-| 12 | 前端密码/用户名输入框没有和后端规则对齐的前置长度校验，用户提交后才会看到报错 | Deepseek | [x] 已解决 | `AuthModal.vue` 用户名/密码/确认密码输入框加上 `minlength`/`maxlength`，与后端正则、长度常量对齐。 |
-| 13 | 无 Redis / token 黑名单：登出只清本地 cookie，旧 token 在过期前仍然有效；改密码也不会让已签发的 token 失效 | Deepseek | [ ] 已知取舍，暂不解决 | Phase 1 阶段引入 Redis 属于"重型依赖"，`Agents.md` 明确不允许未经确认就引入。等后续有实际改密码/强制下线需求时再评估（可选方案：短 token 有效期 + 刷新机制，或维护一张小型黑名单表）。 |
-| 14 | 无自动化测试框架，账号系统只靠人工 curl 验证 | Deepseek | [ ] 已知取舍，暂不解决 | Phase 1 范围判断没必要引入 Jest/Vitest，人工验证已覆盖主要路径和异常分支。如果后续 Phase 复杂度上升可以重新评估。 |
-| 15 | 前端目前无路由守卫 | Deepseek | [ ] 已知取舍，暂不解决 | Phase 1 只有大厅一个页面，暂无需要保护的路由；Phase 2 引入房间页面时再补。 |
-| 16 | `COOKIE_SAME_SITE=none`（跨站部署场景）未做实际联调测试，仅提供了配置项 | 人工自查 | [ ] 未验证 | 当前本地开发是同源部署（前端 5173 代理到后端 3000 走 `withCredentials`），没有真实跨站环境可测；如果以后前后端部署到不同顶级域名，上线前必须单独验证一遍这个配置组合（`COOKIE_SAME_SITE=none` + `COOKIE_SECURE=true`，且必须是 HTTPS）。 |
-
-### Phase 2 审查（2026-09-23，人工自查，房间系统涉及邀请码这类"靠不可猜测性做访问控制"的机制，按规范加做一轮）
-
-| # | 问题 | 发现方式 | 状态 | 备注 |
-|---|---|---|---|---|
-| 17 | `room:joinByCode` 没有限流，邀请码只有 6 位（33^6 ≈ 12.9 亿种组合但字符集小、总量并不算大），脚本可以在短时间内发起海量尝试撞库存活跃房间 | 人工自查 | [x] 已解决 | 新增 `backend/src/utils/rateLimit.js`（手写内存滑动窗口，不为这一个 socket 事件引入新依赖），同一登录用户每分钟最多尝试 20 次，超过返回 `TOO_MANY_ATTEMPTS`。已用测试脚本手工验证正常加入/错误邀请码流程不受影响（未触发限流阈值）；限流触发本身的分支逻辑简单，走查代码确认无误，未单独写脚本刷够 21 次去触发（意义不大）。 |
-| 18 | 房间/对局状态纯内存 + 无持久化是既定设计，但也意味着**没有任何全局配额**：同一个登录用户可以无限制地连续 `room:create`，每次都会占一块内存直到房间清空，理论上可以刷内存做 DoS | 人工自查 | [ ] 已知取舍，暂不解决 | Phase 2 范围判断没必要现在加限流/配额，房间数据结构很小（一个房间对象 + 玩家列表），本地部署/小规模场景下影响有限；如果以后要开放公网给不特定人群用，需要在这里补一个"同用户同时持有房间数"或"总房间数"上限。 |
-| 19 | Socket.io 事件 payload 没有做显式大小限制，理论上可以传超大 `settings` 对象等奇怪内容进来（虽然 `validateSettings` 会因为字段类型不对而拒绝，不会真正落库，但校验本身要花时间解析这个大对象） | 人工自查 | [ ] 已知取舍，暂不解决 | Socket.io 自带的 `maxHttpBufferSize`（默认 1MB）已经是一层兜底；Phase 2 没有看到需要单独收紧的理由，先记录，等真的观察到滥用再调整。 |
-
-### Phase 3 审查（2026-09-24，人工自查，画板协议涉及高频用户输入，按规范加做一轮）
-
-| # | 问题 | 发现方式 | 状态 | 备注 |
-|---|---|---|---|---|
-| 20 | `canvas:strokeProgress`（实时预览）没有 ack、没有限流/节流，纯靠客户端 `pointermove` 原生触发频率广播；正常使用下频率有限，但恶意客户端可以绕过前端直接高频发这个事件，刷房间内所有人的带宽 | 人工自查 | [ ] 已知取舍，暂不解决 | 落地动作（`strokeEnd`/`fill`/`eraseStroke`/`undo`/`redo`/`clear`）都要写日志，天然受 Socket.io 默认 1MB payload 上限和"每次都是完整校验"的开销约束；`strokeProgress` 是转发广播、不落日志、开销小，Phase 3 判断没必要现在加限流，等以后真的观察到滥用（本地部署/小规模场景发生的可能性低）再补一个"每 socket 每秒最多广播 N 次"的节流。 |
-| 21 | `canvas:` 事件的权限目前是"房间内任意在线玩家都能画/撤销/清空"，没有"仅作画者可操作"的限制 | 人工自查 | [x] 已解决 | Phase 4 引入 `requireCanDraw`（第13.4节），对局进行中收紧为"仅当前作画者可画"；Phase 5 接龙模式同理收紧为"仅这一回合轮到你的链可画"（第14.5节）。测试页（无对局）行为不变。 |
-
-### Phase 4 审查（2026-09-26，人工自查，Phase 5 开工前先补一轮——Phase 4 当时合并前没有走完整的安全审查登记流程，属于流程漏做，这次一并补上）
-
-| # | 问题 | 发现方式 | 状态 | 备注 |
-|---|---|---|---|---|
-| 22 | `game:chat`（聊天+猜词共用入口）没有限流，可以高频刷屏 | 人工自查 | [ ] 已知取舍，暂不解决 | 和 #20 是同一类"高频用户输入没有节流"的已知取舍，本地部署/小规模场景风险有限；聊天内容经 Vue 模板插值渲染（项目里确认没有任何 `v-html` 用法），不存在 XSS 风险，只是没有防刷屏节流。 |
-| 23 | `game:chooseWord`/自定义出题的词内容没有敏感词过滤 | 人工自查（FULLREADME 第13.2节原文已提及） | [ ] 已知取舍，暂不解决 | 第13.2节写明"一期没有这个要求，不在这个 Phase 加"，本次复查确认这个决定没有安全含义（不涉及权限/越权，只是内容审核范畴），维持原判。 |
-| 24 | 猜中/选词/结算等私发事件（`game:wordChoices`/`game:wordRevealed`）走查确认只用 `emitToUser`（按 `socketId` 单播）发送，没有误用房间广播 | 人工自查（走读代码，非自动化验证） | [x] 已解决 | 逐条核对 `game/engine.js` 里所有 `emitToUser` 调用，确认没有谜底/候选词泄露到房间广播里；配合自检脚本（`test-phase4-regression.js`，不进仓库）验证了非作画者收不到候选词、看不到谜底原文。 |
-
-### Phase 5 审查（2026-09-26，人工自查，接龙模式新增了"一房间多画板""全员同时行动"两套 Phase 4 没有的机制，按规范加做一轮）
-
-| # | 问题 | 发现方式 | 状态 | 备注 |
-|---|---|---|---|---|
-| 25 | `chain:*` 回合内事件（`chooseWord`/`finishDraw`/`submitGuess`/`vote`）没有限流，和 #20/#22 是同一类已知取舍 | 人工自查 | [ ] 已知取舍，暂不解决 | 理由同 #20/#22，不重复展开；这几个事件都有明确的状态机校验（阶段不对/角色不对直接拒绝），不存在"重复调用导致状态错乱"的问题（已用自检脚本验证重复选词/重复提交猜测/重复投票都被正确拒绝），只是没有频率限制。 |
-| 26 | 接龙模式画板改成"一房间多块"（复合 key），需要确认新玩家/恶意客户端不能跨链读写别人的画板 | 人工自查 + 自检脚本验证 | [x] 已解决 | `chain/store.js` 的 `canDraw` 严格校验"当前这一回合的轮转公式算出来的人是不是你"；`canvas:getState`（只读）沿用原有的"房间成员即可读"，不额外收紧（同13.4节对测试页的处理思路一致，读取不算敏感操作，看到的也只是别人正在画/已经画完的东西，不是谜底文本）。自检脚本专门验证了"非当前轮到的人尝试画别人的链"会被 `NOT_YOUR_TURN` 拒绝。 |
-| 27 | 评审投票环节的"可投票人"范围（排除链的参与者）如果被绕过，等于允许自己给自己投票、操纵结算分数 | 人工自查 + 自检脚本验证 | [x] 已解决 | `castVote` 校验 `eligibleVoters.includes(userId)`，`eligibleVoters` 在开票那一刻就已经固定算好（房间里排除这条链参与者、且在线的玩家），中途没有办法让参与者混进这个列表；已用自检脚本验证非 eligible 的用户投票会被 `NOT_ELIGIBLE_VOTER` 拒绝（走读确认，链参与者本身不在 `eligibleVoters` 里，天然没法投）。 |
-| 28 | 断线处理改成"不暂停共享倒计时"（第14.7节），需要确认这不会导致恶意批量断线来操纵结算（比如故意断线躲避某一步猜词） | 人工自查 | [ ] 已知取舍，非疏漏 | 故意断线躲避猜词，效果等同于"超时不猜"，本来就会被记成空猜测（`guessWord:null`），不会让这个人凭空获得分数或者让链条更容易通过，反而更可能因为最终词对不上而进入需要投票的分支，不存在"断线更有利"的操纵空间，判断不需要额外处理。 |
-
-### Phase 6 审查（2026-09-27，人工自查 + 自检脚本验证，战绩/排行榜/个人作画记录涉及"查别人数据"和"新增一份持久化的用户生成内容"，按规范加做一轮）
-
-| # | 问题 | 发现方式 | 状态 | 备注 |
-|---|---|---|---|---|
-| 29 | `GET /api/records/drawings/:id` 是按主键查询，如果只校验"存在"而不校验"是不是自己的"，任何登录用户可以遍历 id 看到别人的作画记录（笔迹本身不算敏感信息，但仍然是越权读取） | 人工自查 + 自检脚本验证 | [x] 已解决 | 查询里 `LEFT JOIN game_records` 之后在应用层比对 `row.userId === req.user.id`，不匹配和"根本不存在"统一返回 404（不用 403，不额外暴露"这个 id 存在，只是不是我的"）。已用自检脚本验证：bob 访问 alice 的作画记录返回 404，不存在的 id 也返回 404。 |
-| 30 | `drawings.stroke_data` 没有大小上限——一局竞猜可能有好几回合、接龙一条链好几步，每一步的 `actions` 数组理论上可以有 `MAX_POINTS=2000` 个点的很多笔笔迹，落库成一个 TEXT 字段没有做截断/压缩 | 人工自查 | [ ] 已知取舍，暂不解决 | 和 #18"内存无全局配额"是同一类"小规模部署场景下暂不需要"的判断：笔迹本身在产生时已经受 Phase 3 `validateStrokePayload` 的 `MAX_POINTS` 约束，SQLite 单行 TEXT 字段本身没有实际会触及的大小问题（本地部署场景），先不加额外限制；如果以后要面向不特定公众开放，需要重新评估"单局最多缓存多少笔画"或"落库前是否要做笔迹精简"。 |
-| 31 | 排行榜接口 (`GET /api/records/leaderboard`) 把所有玩过对局的用户的 `username` + 总分暴露给任意一个登录用户，不只是查询者自己 | 人工自查 | [x] 确认为预期设计，非疏漏 | 这就是"排行榜"这个功能本身的定义——用户名在游戏内本来就是公开可见信息（房间玩家列表、聊天记录里都能看到其他人的用户名），排行榜再暴露一次不构成新的信息泄露；确认过接口没有多带房间号等其它可能间接泄露"某用户和谁一起玩过"的字段。 |
-
-### Phase 7 审查（2026-09-27，人工自查，本 Phase 新增了会把服务实际暴露到局域网/公网的部署脚本，按规范加做一轮）
-
-| # | 问题 | 发现方式 | 状态 | 备注 |
-|---|---|---|---|---|
-| 32 | 单端口部署新增的 `FRONTEND_DIST_PATH` 静态托管如果配置不当（比如误指向仓库根目录而不是 `frontend/dist`），`express.static` 可能把不该公开的文件（比如 `backend/.env`）暴露出去 | 人工自查 | [x] 已解决 | `app.js` 里只有当 `path.join(frontendDistPath, 'index.html')` 存在时才会挂载 `express.static`，且这个路径完全由部署者自己在 `.env`/脚本里指定；`scripts/build.sh`/`scripts/start.sh` 固定传入的是 `frontend/dist` 的绝对路径，不依赖用户手动填写，排除了"手滑指到根目录"的常见失误。真正意义上的越权保护仍然是"部署者不要把 `FRONTEND_DIST_PATH` 设置成敏感目录"，这条记录下来是为了以后如果开放给部署者自定义这个路径时留一个提醒。 |
-| 33 | `scripts/start.sh` 打印局域网 IP 供别人访问，等于主动提示了"这台机器在局域网里能被访问"，如果本机防火墙配置宽松，理论上局域网内任何人都能连上这个服务（不只是被邀请的玩家） | 人工自查 | [ ] 已知取舍，非疏漏 | 这就是"本地部署、局域网可访问"这个需求本身的题中之义（README 开头第一句话），不是这次新增的风险面；游戏本身通过房间邀请码控制"谁能加入具体的房间/对局"（见 Phase 2 审查 #17），局域网内能访问首页不等于能进任意房间。如果部署环境是不受信任的公共局域网，需要部署者自行用防火墙规则限制来源 IP，这超出了应用层能处理的范围。 |
-| 34 | 生产模式下 `helmet()` 默认的 `Content-Security-Policy` 会不会挡住单端口托管的前端构建产物，导致页面白屏 | 人工自查 + 实测验证 | [x] 已解决 | 实测启动生产服务器后 `curl` 检查响应头，确认 `script-src 'self'`（Vite 构建产物是外部 `<script type="module" src="/assets/...">`，不是内联脚本，符合 `'self'`）、`style-src` 允许 `'unsafe-inline'`（Vue 组件的 scoped style 标签需要），页面 HTML/JS/CSS 均正常 200 返回，没有观察到 CSP 相关的加载失败。**（2026-09-27 更正：这条当时只测了 `localhost`，见 #35——同一条 CSP 默认配置换成局域网 IP 访问会白屏，是另一个指令导致的，不是 `script-src` 的问题。）** |
-
-### Phase 7 补丁审查（2026-09-27，Gemini/Deepseek 实机部署交叉审查发现）
-
-| # | 问题 | 发现方式 | 状态 | 备注 |
-|---|---|---|---|---|
-| 35 | `helmet()` 默认 CSP 带 `upgrade-insecure-requests`：浏览器对 loopback 地址（`localhost`/`127.0.0.1`）豁免这条升级规则，所以 #34 当时用 `localhost` 测没测出问题；换成局域网 IP（比如 `192.168.x.x`）访问时，浏览器把页面里所有资源请求强制升级成 https 再发，这个项目没有内置 HTTPS，升级后的请求直接失败，页面白屏（bug D10000 的根因之一，另一个根因是 `start.sh` 路径解析在 Windows 上出错，见下方部署脚本条目） | Deepseek 实机部署审查（Windows + 局域网 IP 实测复现） | [x] 已解决 | `app.js` 的 `helmet()` 配置显式去掉了这条指令（`'upgrade-insecure-requests': null`）。这个项目设计上就没有内置 HTTPS（README 明确写了公网/HTTPS 需要部署者自己加反向代理），去掉这条指令不会有安全倒退——如果以后真的放到 HTTPS 反代后面，页面本来就是通过 https 加载的，相对路径资源天然就是 https，不依赖这条 CSP 指令。 |
-| 36 | `scripts/start.sh` 之前只在注释/README 里"提醒"部署前要把 `NODE_ENV` 改成 `production`、`JWT_SECRET` 改成随机值，没有真正拦截——如果用户照抄 `.env.example` 什么都不改就跑这个脚本，会得到一台用公开默认密钥 `change-me-to-a-random-secret` 签发 JWT 的局域网服务，局域网内任何人都能伪造任意用户身份登录 | Deepseek 长文审查报告建议 | [x] 已解决 | `start.sh` 启动前新增强制检查：读 `backend/.env` 的 `NODE_ENV`/`JWT_SECRET`，任一项不满足直接 `exit 1` 并打印具体缺什么，不再只是"提醒"。 |
-| 37 | 同一浏览器 tab 换账号（登出再登录）后，Socket.io 连接不会重新走一次握手——`socket.user` 只在建立连接那一刻从 Cookie 里解析一次，之后不管 Cookie 后来怎么变都不会重新算，导致换账号后的房间/对局操作会继续以旧账号身份在服务端执行；若旧账号登出时还留在房间里，新账号能直接以旧账号身份操作旧账号的房间/房主权限 | Deepseek 长文审查报告（中危，报告里提到 Phase 1~5 就发现过、当时没转达给开发方修复） | [x] 已解决，但测试覆盖较弱 | 前端 `stores/auth.js` 的 `doLogin`/`doRegister`/`doLogout` 现在都会调用 `socket/client.js` 新增的 `reconnectSocket()`，对同一个 Socket 对象做 `disconnect()`+`connect()`，重新走一次握手（这时浏览器的 Cookie 已经是最新的）。没有写自动化端到端测试验证这条（要模拟"同一个连接先后以两个身份握手"，比前面几个竞态 bug 的测试场景复杂），只做了代码走读确认逻辑自洽，建议实机测试时手动验证一遍：登出再换账号登录，进房间操作看是不是真的以新账号身份生效。 |
+已整体迁移到 [`ISSUES.md`](ISSUES.md)（含 Phase 1~7 全部 #1~42 条、编号不变）。记录规范见 `Agents.md`"安全审查规范"；本节只保留指针，不重复维护表格，避免两处内容漂移。
 
 ---
 
-## 15. 战绩/排行榜/个人作画记录协议（Phase 6）
-
-### 15.1 设计取舍
-
-- **落库时机**：不是"边玩边写"，而是在每一局 `endGame`（不管是正常打完还是中途因为人数不足被提前结算）时一次性把这一局所有参与者的 `game_records` + 这一局产生的所有 `drawings` 用一个 SQLite 事务写进去。好处是不用在高频的回合内事件里穿插数据库写入，坏处是如果服务进程在对局中途崩溃，这一局的战绩会丢——本项目房间/对局状态本来就是纯内存、重启即清空（见第1节技术栈），战绩持久化只是"结果"持久化，不改变这个既有取舍。
-- **竞猜模式的画作怎么来**：`game/store.js` 的 session 新增 `turnRecords` 数组，每次 `endTurn`/`forfeitTurn`（回合正常结束或作画者中途被移出而作废）时，在画板真正被清空（下一回合 `beginTurn` 才会清）之前，同步把 `canvasStore.getVisibleActions(roomId)` 的快照存一份到 `turnRecords` 里；一笔没画的回合（`actions.length===0`）不存。
-- **接龙模式的画作怎么来**：不需要额外捕获——Phase 5 的 `chain.steps`（第14.4节）本来就在每一步"画"结束时把 `{ by, word, actions }` 存进了 session，`endGame` 时直接从 `session.chains` 里把所有 `type==='draw'` 的步骤拍平成 drawings 列表即可，是复用而不是新写一套。
-- **`drawings.stroke_data` 的形状**：`JSON.stringify({ word, actions })`，`actions` 就是画板引擎第12节协议里那套矢量动作（`type==='stroke'|'fill'|...`），前端详情页直接喂给 `ActionsPreview.vue`（Phase 5 结算页复用的那个静态画板预览组件）就能重新渲染出这幅画——这也是第2节"协议设计原则"里"画板底层按存储笔迹矢量序列设计，方便以后做回放"这条最终落地的地方。
-- **`game_records.room_id`**：只是个不透明字符串标识，房间本身不持久化，room_id 在战绩列表里目前只用来"同一局的记录分组"，不做展示（房间号对玩家没有可读意义）。
-
-### 15.2 数据模型（对应第6节草案，Phase 6 起真正有代码读写）
-
-沿用 Phase 1 `db/init.js` 就建好的两张表结构不变，本 Phase 只是补上了业务读写代码和 4 个索引（`game_records(user_id)` / `game_records(played_at)` / `drawings(user_id)` / `drawings(created_at)`）。
-
-### 15.3 REST 接口（`backend/src/routes/records.js`，全部要求登录，见第10节 #29）
-
-| 接口 | 说明 |
-|---|---|
-| `GET /api/records/me?mode=&limit=&offset=` | 个人战绩历史，按 `played_at` 倒序分页；`mode` 可选 `guess`/`chain`，不传返回全部 |
-| `GET /api/records/leaderboard?mode=&limit=` | 总分排行榜（`SUM(score)` 聚合，`ORDER BY totalScore DESC, gamesPlayed DESC`），附带调用者自己的名次（`me` 字段，哪怕不在返回的前 N 名列表里也能拿到） |
-| `GET /api/records/drawings?limit=&offset=` | 个人作画记录列表，只带 `word`（用 `json_extract` 从 `stroke_data` 里取，不下发完整 `actions`，避免列表页一次性拉一堆大笔迹数据） |
-| `GET /api/records/drawings/:id` | 单条作画记录详情，带完整 `actions`，供前端回放/放大预览；非本人的记录统一 404（第10节 #29） |
-
-`limit` 统一夹在 `[1, 50]`（列表类默认 20，排行榜默认 20），非法 `mode`/非法 `id` 返回 400，不静默纠正。
-
-### 15.4 前端页面（对应第3节，新增3个页面）
-
-- `frontend/src/pages/RecordsHistory.vue`（路由 `/records`，"我的战绩"）：全部/竞猜/接龙三个 tab，列表 + "加载更多"分页。
-- `frontend/src/pages/Leaderboard.vue`（路由 `/leaderboard`，"排行榜"）：总分/竞猜/接龙三个 tab，前 50 名列表；如果自己不在列表里，底部单独展示一条"我的排名"。
-- `frontend/src/pages/MyDrawings.vue`（路由 `/drawings`，"我的作画记录"）：网格缩略卡片（只展示模式/词/时间，不在列表阶段渲染真实画面，避免几十条记录同时发详情请求），点击某一条才按需拉取详情、用 `ActionsPreview.vue` 弹窗渲染出完整画作。
-- `Home.vue` 底部新增三个入口按钮，未登录点击会和"创建房间"/"加入房间"一样弹登录框（复用同一套 `requireLoginThen` 逻辑）。
-
----
-
+## 11. 房间系统协议（Phase 2）
 
 本节先落协议再写代码（`Agents.md` 第2条）。房间/玩家状态一律纯内存（`rooms` Map，见第6.2节），不做持久化；只有已登录用户（`socket.user` 非空）能创建/加入房间。
 
@@ -358,12 +239,7 @@
 |---|---|---|
 | `rounds` | number | 1~5 / 自定义 1~10，打几轮，每轮每人轮流画一次（第13.1节 `totalRounds`） |
 
-（2026-09-27 更正：`rounds` 原来错误地放在"通用字段"里、两种模式建房都会看到这个选项，但
-`chain/engine.js` 从来不读它——接龙模式实际用的是下面的 `chainRounds`。接龙模式建房页面同时
-出现"回合"和"接龙次数"两个选项，前者对接龙模式完全没有效果，是真实的 UX bug，不是有意为之
-的设计，Gemini/Deepseek 实机审查报告提出疑问后经用户确认修正：`rounds` 校验挪到
-`validateGuessExtra`，只在 `mode==='guess'` 时校验/返回；接龙模式的建房/设置编辑页面也把
-"回合"这个字段隐藏了。）
+接龙模式没有 `rounds`（用 `chainRounds`）；服务端只在 `mode==='guess'` 时校验并返回它。
 
 **接龙模式（`mode: 'chain'`）独有**：
 
@@ -371,8 +247,8 @@
 |---|---|---|
 | `guessSeconds` | number | 30 / 60 / 自定义 10~300 |
 | `chainRounds` | number | 1~7，默认 3 |
-| `anonymousVoting` | boolean | 开启后只隐藏投票人身份，结果依然公开（Phase 5 才会用到具体逻辑，Phase 2 只存设置） |
-| `showDrawingProcess` | boolean | 结算评审阶段（第14.6节）是否展示每一步的画作缩略图；关闭时 `chain:reviewChain` 广播里画步骤的 `actions` 字段直接不下发（不是发了让前端藏起来），前端只显示猜词文字，结算更快。（2026-09-27 之前这个字段校验/存储了但完全没接任何逻辑，结算永远展示画作，开关是摆设；经用户确认后在 `chain/engine.js` 的 `processNextReview` 里接上。） |
+| `anonymousVoting` | boolean | 开启后只隐藏投票人身份，结果依然公开（14.6） |
+| `showDrawingProcess` | boolean | 结算评审（14.6）是否展示每步画作；关闭时 `chain:reviewChain` 里画步骤的 `actions` 服务端直接不下发，前端只显示猜词文字。`session` 内的 `actions` 不受影响（Phase 6 落库仍用） |
 
 服务器对以上范围做硬校验，超出范围直接拒绝（`INVALID_SETTINGS`），不做静默 clamp。
 
@@ -385,7 +261,7 @@
 
 事件名统一 `room:` 前缀，客户端 → 服务端的事件都带 ack 回调，返回 `{ ok: true, ...data }` 或 `{ ok: false, error, message }`（`error` 取值如 `NOT_AUTHENTICATED` / `INVALID_SETTINGS` / `ROOM_NOT_FOUND` / `ROOM_FULL` / `INVALID_INVITE_CODE` / `NOT_HOST` / `TOO_MANY_ATTEMPTS`）。
 
-`room:joinByCode` 有限流：同一登录用户每分钟最多尝试 20 次，超过返回 `TOO_MANY_ATTEMPTS`（见第10节 Phase 2 安全审查 #1，防止暴力猜邀请码）。
+`room:joinByCode` 有限流：同一登录用户每分钟最多尝试 20 次，超过返回 `TOO_MANY_ATTEMPTS`（见 `ISSUES.md` #17，防止暴力猜邀请码）。
 
 **客户端 → 服务端**
 
@@ -417,9 +293,7 @@
 
 ## 12. 画板引擎协议（Phase 3）
 
-**范围说明**：Phase 3 只做"画板引擎"本身——工具栏、矢量协议、多端实时同步、撤销/重做/清空——不做"谁能画"的游戏规则（那是 Phase 4/5 竞猜/接龙玩法里"作画者"身份的范畴）。因此本节协议里，**房间内任意在线玩家都可以画**，没有"仅作画者可画"的权限限制；Phase 4/5 接入真实对局流程时，会在这一层协议之上加一层"当前是否轮到你画"的校验，不需要改这里定义的事件形状。这条是本 Phase 的一个开放假设，已在 PR 里向用户标注，等待确认（`Agents.md` 第5条）。
-
-同理，Phase 4/5 之前没有"游戏内页面"，Phase 3 通过房间大厅页新增的一个"画板引擎测试"入口（`/room/:id/canvas-test`）来承载联调，明确标注为测试入口，不是正式游戏页面；正式游戏页面搭建时会直接复用这里做的 `CanvasBoard.vue` 组件和 `useCanvas()` composable。
+**范围说明**：本节只定义画板引擎本身（工具栏、矢量协议、多端同步、撤销/重做/清空），不含"谁能画"的游戏规则——对局中的作画权限由 13.4（竞猜）/14.5（接龙）在本协议之上追加校验，不改这里的事件形状；无对局时（如 `/room/:id/canvas-test` 测试页）房间内任意在线玩家都可画。正式游戏页复用这里的 `CanvasBoard.vue` 与 `useCanvas()`。
 
 ### 12.1 设计原则
 
@@ -497,9 +371,9 @@ canvasSessions: Map<roomId, {
 | `canvas:strokeErased` | `{ targetActionId, eraseActionId, playerId }` | 线擦命中一条笔迹 |
 | `canvas:actionUndone` | `{ actionId, type, targetActionId? }` | 撤销；`type==='lineErase'` 时 `targetActionId` 是重新出现的那条笔迹 id |
 | `canvas:actionRedone` | `{ actionId, type, targetActionId? }` | 重做 |
-| `canvas:cleared` | `{}` | 清空 |
+| `canvas:cleared` | `{ roomId, chainOwnerId }`（竞猜/测试页 `chainOwnerId` 为 `null`）；前端据此判断是否是当前正在看的画板，缺 `roomId` 会被丢弃 | 清空（含竞猜每回合开始时的自动清空） |
 
-### 12.4 已知限制（记入第10节安全问题跟踪表 #20）
+### 12.4 已知限制（记入 `ISSUES.md` #20）
 
 - 线擦只能擦 `stroke`/`fill`，不能擦另一条 `lineErase`（没有"擦除擦除动作"的需求）。
 - 客户端渲染策略是"整幅重绘"（每次收到会改变可见集合的事件就用 `actions` 全量重画一次画布），不做局部脏矩形优化——本地部署/小规模场景下笔迹总量有限，这个简化换取实现正确性，若以后发现性能问题再优化。
@@ -542,7 +416,7 @@ games: Map<roomId, {
 
 非作画者收到的 `game:turnStarted` 不含 `word`，只有 `wordLength`（谜底的字符数，中文按字符数不按拼音）；前端按 `wordLength` 渲染成等量占位符（比如"＿ ＿ ＿"），不做"提前展示部分汉字"之类的渐进提示——一期只做这个最简单的形式，更复杂的提示策略留到以后有需要再加。
 
-### 13.4 画板权限收紧（解决 Phase 3 遗留的开放假设，第10节 #21）
+### 13.4 画板权限收紧（解决 Phase 3 遗留的开放假设，`ISSUES.md` #21）
 
 `backend/src/socket/canvas.js` 里所有会改变画板状态的事件（`strokeEnd`/`fill`/`eraseStroke`/`undo`/`redo`/`clear`）新增一层校验：如果该房间当前有进行中的 Phase 4 对局（`games` 里存在这个 `roomId` 且 `phase==='drawing'`），只有 `socket.user.id === game.drawerId` 才允许操作，其他人一律 `NOT_YOUR_TURN`。`choosingWord` 阶段（还没进入绘画）画板保持锁定（谁都不能画，包括作画者本人——词还没选定）。房间没有进行中对局时（`status:'waiting'`，比如还在 `/room/:id/canvas-test` 测试页玩），行为不变，沿用 Phase 3"任意在线玩家可画"的规则——测试页不受这层限制影响。
 
@@ -552,7 +426,7 @@ games: Map<roomId, {
 
 - 设本回合"猜题方"人数（除作画者外的在场玩家数）为 `N`，某玩家是第 `rank`（1-based）个猜中的：得分 `= max(20, 100 - (rank - 1) * 15)`，即第1名100分，第2名85分，依次递减，最低封顶在20分（"最后阶段只有参与分"）。
 - 猜不中（回合结束时仍未猜中）：0 分。
-- **作画者得分**（文档没提，本 Phase 的开放假设，见 `HISTORY.md`）：`10 × 本回合猜中人数`，猜的人越多、猜得越快画得越好这件事本身没法直接量化，用"猜中人数"作为画得好不好的代理指标，激励作画者好好画而不是随便画糊弄。
+- **作画者得分**（原文档未规定，设计假设，见 `HISTORY.md`）：`10 × 本回合猜中人数`，以猜中人数作为"画得好不好"的代理指标。
 - 所有回合结束后，按累计得分从高到低排名，出现平分时按 `userId` 稳定排序（不做特殊并列名次逻辑，一期不需要）。
 
 ### 13.6 断线处理（解决第8节遗留问题）
@@ -601,7 +475,7 @@ games: Map<roomId, {
 
 ## 14. 接龙模式完整玩法协议（Phase 5）
 
-**范围说明**：本节把第5.2节的接龙模式流程落成具体协议，架构上尽量复用 Phase 4 的模式（独立的 `chain/store.js` + `chain/engine.js`，`engine.js` 持有 `io`，理由同13节顶部），但接龙模式和竞猜模式有一个根本性的结构差异需要先说清楚：**竞猜模式任意时刻只有一个人在画（其余人在猜），接龙模式任意时刻是所有人同时在各自的一条链上行动**（要么同时在画各自的题，要么同时在猜"上一位传过来的画"）。这决定了下面好几处设计都不能照搬竞猜模式的"单作画者"假设，包括画板要拆成"一房间多块"、回合超时要按"全员完成"而不是"这一个人完成"来推进、断线处理也不能照搬"暂停单个倒计时"的做法。这些差异点在下面对应小节都会标注。
+**范围说明**：本节把第5.2节的接龙模式流程落成具体协议，架构上尽量复用 Phase 4 的模式（独立的 `chain/store.js` + `chain/engine.js`，`engine.js` 持有 `io`，理由同13节顶部），但接龙模式和竞猜模式有一个根本性的结构差异需要先说清楚：**竞猜模式任意时刻只有一个人在画（其余人在猜），接龙模式任意时刻是所有人同时在各自的一条链上行动**（要么同时在画各自的题，要么同时在猜"上一位传过来的画"）。因此画板要拆成"一房间多块"（14.5）、回合按"全员完成"推进（14.4）、断线不能照搬"暂停单个倒计时"（14.7）。
 
 ### 14.1 对局数据结构（内存，`backend/src/chain/store.js`）
 
@@ -635,14 +509,14 @@ sessions: Map<roomId, {
 turnOrder[(ownerIndex + turn - 1) % N]
 ```
 
-也就是说每条链每回合都往后传一位（`turnOrder` 里的下一位），`turn=1` 时这个公式正好算出 owner 自己（`ownerIndex+0`），所以"第1回合每个人画自己选的词"和"这条公式"是同一件事，不需要为 `turn=1` 单独写一条判断。这条公式是本 Phase 对第5.2节例子（3人 A/B/C，画/猜依次轮转一圈）的形式化：文档举的例子只到"1环"的前3个回合，"环数"具体怎么换算成总回合数、词是怎么在链之间传递的，文档没有明确写出公式，这是本 Phase 的开放假设，PR 里已重点标注请用户确认。
+也就是说每条链每回合都往后传一位（`turnOrder` 里的下一位），`turn=1` 时这个公式正好算出 owner 自己（`ownerIndex+0`），所以"第1回合每个人画自己选的词"和"这条公式"是同一件事，不需要为 `turn=1` 单独写一条判断。这条公式是对第5.2节例子的形式化（环数换算总回合数、词在链间传递方式均为本设计的假设，已经用户确认沿用）。
 
 选词只发生在 `turn===1`（每条链的 owner 给自己的链选起点词，见14.3节）；`turn>1` 的画不需要选词，直接把"上一步猜词的结果"当题目发给这一步的画者（`currentDrawWordFor` 函数：取链上最后一步——一定是一次"猜"——的 `guessWord`）。
 
 ### 14.3 选词与超时
 
 - 系统出题（`wordSource==='system'`）：`turn===1` 时给**每条链的 owner 同时**发一条私有的候选词（复用 `wordbanks.pickWords`），各自独立选，不用等别人；超时（固定20秒，同13.2节的 `CHOOSE_WORD_TIMEOUT_MS`）自动从候选里随机选一个。
-- 自定义出题（`wordSource==='custom'`）：owner 直接输入；超时没输入的链标记 `autoFail=true`（`originalWord` 保持 `null`），这条链从一开始就没有起点词，结算时（14.6节）直接判不通过，不进入投票——文档没规定这种情况怎么处理，本 Phase 按"没有词就没法比对首尾是否一致"的思路直接判定，属于开放假设。
+- 自定义出题（`wordSource==='custom'`）：owner 直接输入；超时没输入的链标记 `autoFail=true`（`originalWord` 保持 `null`），这条链从一开始就没有起点词，结算时（14.6节）直接判不通过，不进入投票（没有词就无法比对首尾）。
 - `turn>1` 的画（拿"上一位猜的词"作画）不需要选词这一步，也没有超时的概念——那一步"要画什么"是确定的（上一步猜出的词，哪怕是 `null`，前端提示"对方没写猜测，自由发挥"）。
 
 ### 14.4 绘画/猜词阶段的"全员完成"推进（第14节顶部提到的结构性差异）
@@ -665,21 +539,21 @@ turnOrder[(ownerIndex + turn - 1) % N]
 
 ### 14.6 结算规则（细化第5.2节"评分环节"）
 
-全部 `totalTurns` 回合跑完后，进入 `reviewing` 阶段，**按 `turnOrder` 顺序**（即每条链 owner 的加入顺序）依次公示每一条链，公示节奏：广播这条链完整的历史（起点词、每一步是谁画的/谁猜的、画面、最终是否一致）→ 停留 `REVIEW_DISPLAY_MS`（5秒，已一致的情况）或走一轮投票 → 下一条链。文档只给了方向性描述（"一致直接加分；不一致时其他玩家投票是否认可，半数以上同意则加分"），具体分数、"其他玩家"范围、多数阈值都没有给出，本 Phase 按下面这版拍板，PR 里重点标注请用户确认：
+全部 `totalTurns` 回合跑完后，进入 `reviewing` 阶段，**按 `turnOrder` 顺序**（即每条链 owner 的加入顺序）依次公示每一条链，公示节奏：广播这条链完整的历史（起点词、每一步是谁画的/谁猜的、画面、最终是否一致）→ 停留 `REVIEW_DISPLAY_MS`（5秒，已一致的情况）或走一轮投票 → 下一条链。文档只给了方向性描述（"一致直接加分；不一致时其他玩家投票是否认可，半数以上同意则加分"），具体分数、"其他玩家"范围、多数阈值按下面这版：
 
 - **参与者**：一条链的"参与者"= 这条链的 owner + 所有在这条链上画过/猜过的人（去重）。分数按参与者整体发放，不区分谁画得好谁猜得准——接龙本身是"整条链共同完成"这个概念，拆开算贡献没有意义。
 - **完全一致**（最终猜出的词 === 起点词，字符串精确匹配）：参与者每人 **100 分**，不需要投票，直接公示结果。
 - **起点词从一开始就是空的**（自定义出题超时没输入，`autoFail`）：直接判不通过，0 分，不进入投票——没有原始答案，投票也没有意义。
 - **不一致但有原始答案**：进入投票，"其他玩家" = 房间里**排除这条链的参与者**之外、且当前在线（`connected`）的玩家；`anonymousVoting` 设置项决定广播 `chain:voteCast` 时带不带投票人身份和选择（[stated] 用户已确认"匿名投票"只是不显示是谁投的，票数本身仍然公开）；半数以上（**严格多数**，`赞成数 > 可投票人数/2`，比如2个可投票人里1票赞成不算通过，需要2票）同意：参与者每人 **60 分**；不同意或没人投票（超时 `REVIEW_VOTE_TIMEOUT_MS`=20秒，未投视为不赞成）：0 分。
-- **没有人可以投票**（比如房间人数很小、这条链几乎覆盖了所有人）：文档没规定这种边界情况，本 Phase 直接判不通过，记为已知取舍。
+- **没有人可以投票**（如这条链几乎覆盖所有人）：直接判不通过（已知取舍）。
 - 全部链公示完后广播 `game:ended`（和竞猜模式共用同一个事件名/payload 形状：`{ scores, ranking }`），`room.status` 改回 `'waiting'`。
 
 ### 14.7 断线处理（第14节顶部提到的第二处结构性差异，解决第8节遗留问题）
 
-原计划是"沿用 Phase 4 竞猜模式定下的思路"（第8节），但竞猜模式那套"作画者断线就暂停唯一的那个倒计时"的做法，在接龙模式里不成立——任意时刻是**全员同时**在各自的链上行动，为某一个断线的人暂停共享的 `turnDeadline`，会不公平地拖慢其他仍在线的人（多人游戏被一个掉线的人卡住）。本 Phase 改成更简单的规则，开工前已经和这条一起明确记录，PR 里重点标注请用户确认：
+竞猜模式"暂停唯一的倒计时"的做法在这里不成立：全员同时行动，为一个断线者暂停共享的 `turnDeadline` 会拖慢所有在线的人。规则：
 
 - **不做计时器暂停/恢复**：断线的人这一步就是"没赶上"（画多少算多少/猜词记空），`turnDeadline` 该到点还是到点，不为任何人暂停——`onPlayerDisconnected`/`onPlayerReconnected` 这两个钩子因此是空实现（有意为之，不是遗漏，注释里写清楚了）。60 秒宽限期内重连、且回合还没结束的话，照样可以正常操作（服务端状态没丢）。
-- **正式被移出房间**（超过60秒宽限期）：`turnOrder` 本身**不删除这个人、不重新编号**（不同于竞猜模式的 `turnOrder.splice`）——因为接龙模式的轮转公式（14.2节）是纯粹基于位置的模运算，中途改变数组长度会打乱所有还没轮到的链的分配；改成把这个 `userId` 记进 `removedUserIds` 集合，后续所有轮到他的步骤（不管是画还是猜）自动判定为"已完成"（空白/空猜测），不会卡住其他人，但轮转公式本身照旧不变。这是本 Phase 对"中途有人被移出该怎么继续排"的简化处理，比竞猜模式 `advanceDrawer` 的简化（记录在13.6节/`game/engine.js` 注释里）走得更远一点，因为接龙模式的轮转比竞猜模式的"单指针依次轮换"更依赖固定的位置编号。
+- **正式被移出房间**（超过60秒宽限期）：`turnOrder` 本身**不删除这个人、不重新编号**（不同于竞猜模式的 `turnOrder.splice`）——因为接龙模式的轮转公式（14.2节）是纯粹基于位置的模运算，中途改变数组长度会打乱所有还没轮到的链的分配；改成把这个 `userId` 记进 `removedUserIds` 集合，后续所有轮到他的步骤（不管是画还是猜）自动判定为"已完成"（空白/空猜测），不会卡住其他人，但轮转公式本身照旧不变。这是对"中途有人被移出"的简化处理，因为接龙轮转比竞猜的"单指针轮换"更依赖固定位置编号。
 - 剩余在场人数低于 `MIN_PLAYERS_TO_CONTINUE`（2人，和竞猜模式取值一致）时直接提前结算（`endGame`），按已经产生的分数出排名。
 - 房间在对局进行中被销毁：`chain/store.js` 的 session 和这局用到的所有链级画板（`chainCanvasKey` 复合 key）一起清理，不遗留。
 - 对局进行中不允许新玩家加入：复用房间层已有的 `room.status==='playing'` 时拒绝加入的检查（13.6节），没有额外改动。
@@ -696,7 +570,7 @@ turnOrder[(ownerIndex + turn - 1) % N]
 | `chain:chooseWord` | `{ word }` | 仅 `turn===1` 的 `choosingWord` 阶段；只能给**自己的链**选词，`wordSource==='system'` 时必须在候选里 |
 | `chain:finishDraw` | 无 | 仅 `drawing` 阶段、且当前这一回合轮到你画；提前标记完成（见14.4节） |
 | `chain:submitGuess` | `{ guess }` | 仅 `guessing` 阶段、且当前这一回合轮到你猜；1~20字符非空 |
-| `chain:chat` | `{ text }` | 普通聊天（第5.2节），须有进行中对局，1~200 字；广播 `chain:chatMessage`（`{ userId, text }`），不含任何猜中判定（猜词走 `chain:submitGuess`）。2026-09-27 补做 |
+| `chain:chat` | `{ text }` | 普通聊天（第5.2节），须有进行中对局，1~200 字；广播 `chain:chatMessage`（`{ userId, text }`），不含任何猜中判定（猜词走 `chain:submitGuess`） |
 | `chain:vote` | `{ approve }` | 仅 `reviewing` 阶段、且你是当前正在公示的这条链的"可投票人"（14.6节） |
 | `game:getState` | 无 | 断线重连/刷新页面兜底同步：返回当前对局状态（`phase`/`turn`/`scores`/我这回合负责的链和角色等，见 `chain/engine.js` 的 `getStateForUser`）。**已知简化**：重连时如果正处在 `reviewing` 阶段，只返回"第几条/共几条"的进度提示，不重放完整的历史播报，前端从下一条 `chain:reviewChain` 广播开始继续看——评审阶段完整状态重建复杂度较高，记为本 Phase 的简化，见 `HISTORY.md`。 |
 
@@ -711,6 +585,7 @@ turnOrder[(ownerIndex + turn - 1) % N]
 | `chain:wordChoices` | 私发给链的 owner：`{ candidates }` | `turn===1` 选词阶段开始，`wordSource==='system'` 时 |
 | `chain:wordToDraw` | 私发给当前该画的人：`{ chainOwnerId, word, wordLength }` | 绘画阶段开始，`word` 可能是 `null`（上一步没人猜/猜了空） |
 | `chain:imageToGuess` | 私发给当前该猜的人：`{ chainOwnerId }`（不带画面数据，见14.5节） | 猜词阶段开始 |
+| `chain:chatMessage` | `{ userId, text }` | 有人发了聊天 |
 | `chain:guessSubmitted` | `{ chainOwnerId, userId }`（不含猜测原文，防剧透，同13.7节 `game:correctGuess` 的思路） | 有人提交了猜测 |
 | `chain:reviewChain` | `{ chainOwnerId, originalWord, steps, matched, participantIds }` | 结算阶段，轮到公示这条链 |
 | `chain:reviewResolved` | `{ chainOwnerId, approved, reason, scoreEach, scores }`（`reason`: `matched`/`noWord`/`noEligibleVoters`） | 这条链不需要投票就能出结果 |
@@ -723,9 +598,40 @@ turnOrder[(ownerIndex + turn - 1) % N]
 ### 14.9 页面（对应第3节第7、8项）
 
 - `frontend/src/pages/ChainGame.vue`：正式游戏内页面，路由 `/room/:id/chain-game`（和竞猜模式的 `/room/:id/game` 分开，`stores/room.js` 订阅 `game:started` 时按 `room.mode` 决定跳到哪个路由）。布局按回合的 `phase` 切换：选词（候选按钮/自定义输入框）、绘画（`CanvasBoard` + 题目 + "提前完成作画"按钮，这回合轮不到自己画就只显示等待提示，不挂 `CanvasBoard`）、猜词（`CanvasBoard` 只读模式 + 猜测输入框，轮不到自己猜同样只显示等待提示）、结算（逐条链展示，含历史画作——新增一个 `frontend/src/canvas/ActionsPreview.vue` 轻量静态画板预览组件，从 `CanvasBoard.vue` 抽出纯渲染逻辑到 `frontend/src/canvas/render.js` 共用，因为结算展示要同时静态渲染好几步历史画作，跟 `CanvasBoard` 那套"联网可交互单例状态"的画板不是一回事）。
-- 结算展示复用竞猜模式的思路（`GuessGame.vue` 同款：收到 `game:ended` 后切到排名表 + "返回房间"按钮），不单独拆路由页面。
+- 非评审阶段的侧栏含计分板 + 聊天面板（`chain:chat`）；评审阶段为内联布局，暂无聊天入口。
+- 结算展示复用竞猜模式的思路（收到 `game:ended` 后切到排名表 + "返回房间"按钮），不单独拆路由页面。
 - `RoomLobby.vue` 的"开始游戏"入口从"仅竞猜模式可用"改成竞猜/接龙都用同一个按钮，按 `room.mode` 分别做人数门槛校验（竞猜2人/接龙4人）和分发到对应的 `start()`（`useGame`/`useChain` 两个 composable，事件名都是 `game:start`，服务端按 `room.mode` 分发，前端只是各自维护自己模式的本地状态）。
 
 ---
 
+## 15. 战绩/排行榜/个人作画记录协议（Phase 6）
 
+### 15.1 设计取舍
+
+- **落库时机**：每局 `endGame`（正常打完或人数不足提前结算）时，用一个 SQLite 事务一次性写入这一局所有参与者的 `game_records` 与这一局产生的所有 `drawings`，不在回合内事件里穿插写库。代价：服务进程在对局中途崩溃则这一局战绩丢失——与"对局状态纯内存、重启即清空"（第1节）一致，持久化的只是结果。
+- **竞猜画作来源**：`game/store.js` session 的 `turnRecords`，在 `endTurn`/`forfeitTurn` 时于画板被清空前同步快照 `canvasStore.getVisibleActions(roomId)`；一笔没画的回合不存。
+- **接龙画作来源**：复用 `chain.steps`（14.4）里每个"画"步骤已存的 `{ by, word, actions }`，`endGame` 时把所有 `type==='draw'` 的步骤拍平即可，不另行捕获。
+- **`drawings.stroke_data`**：`JSON.stringify({ word, actions })`，`actions` 即第12节矢量动作，前端详情页直接喂给 `ActionsPreview.vue` 重绘。
+- **`game_records.room_id`**：不透明字符串，仅用于"同一局记录分组"，不展示。
+
+### 15.2 数据模型（对应第6节草案，Phase 6 起真正有代码读写）
+
+沿用 Phase 1 `db/init.js` 就建好的两张表结构不变，本 Phase 只是补上了业务读写代码和 4 个索引（`game_records(user_id)` / `game_records(played_at)` / `drawings(user_id)` / `drawings(created_at)`）。
+
+### 15.3 REST 接口（`backend/src/routes/records.js`，全部要求登录，见 `ISSUES.md` #29）
+
+| 接口 | 说明 |
+|---|---|
+| `GET /api/records/me?mode=&limit=&offset=` | 个人战绩历史，按 `played_at` 倒序分页；`mode` 可选 `guess`/`chain`，不传返回全部 |
+| `GET /api/records/leaderboard?mode=&limit=` | 总分排行榜（`SUM(score)` 聚合，`ORDER BY totalScore DESC, gamesPlayed DESC`），附带调用者自己的名次（`me` 字段，哪怕不在返回的前 N 名列表里也能拿到） |
+| `GET /api/records/drawings?limit=&offset=` | 个人作画记录列表，只带 `word`（用 `json_extract` 从 `stroke_data` 里取，不下发完整 `actions`，避免列表页一次性拉一堆大笔迹数据） |
+| `GET /api/records/drawings/:id` | 单条作画记录详情，带完整 `actions`，供前端回放/放大预览；非本人的记录统一 404（`ISSUES.md` #29） |
+
+`limit` 统一夹在 `[1, 50]`（列表类默认 20，排行榜默认 20），非法 `mode`/非法 `id` 返回 400，不静默纠正。
+
+### 15.4 前端页面（对应第3节，新增3个页面）
+
+- `frontend/src/pages/RecordsHistory.vue`（路由 `/records`，"我的战绩"）：全部/竞猜/接龙三个 tab，列表 + "加载更多"分页。
+- `frontend/src/pages/Leaderboard.vue`（路由 `/leaderboard`，"排行榜"）：总分/竞猜/接龙三个 tab，前 50 名列表；如果自己不在列表里，底部单独展示一条"我的排名"。
+- `frontend/src/pages/MyDrawings.vue`（路由 `/drawings`，"我的作画记录"）：网格缩略卡片（只展示模式/词/时间，不在列表阶段渲染真实画面，避免几十条记录同时发详情请求），点击某一条才按需拉取详情、用 `ActionsPreview.vue` 弹窗渲染出完整画作。
+- `Home.vue` 底部新增三个入口按钮，未登录点击会和"创建房间"/"加入房间"一样弹登录框（复用同一套 `requireLoginThen` 逻辑）。
